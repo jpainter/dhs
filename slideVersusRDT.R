@@ -1,10 +1,8 @@
 # Discordant Malaria tests
 # 
-# Get survey_design object from getSurveyValue.R
+# use code in getSurveyValue.R to get survey_design object from each file
 #
-# e.g. Angola 2011 household member data as 'member', survey design as 'membersvy'
-  # individual as member
-
+source("getSurveyValue.R")
 
 # hv001 is cluster
 # hv002 is household
@@ -25,10 +23,10 @@
 #     (m) 9  Missing
 #     (na)    Not applicable
 
-# get data
-source("getSurveyValue.R")
+# get list of dhs files available
+source("file_list.r")  
 
-
+# fetch each survey and keep data from those that have malaria test data
 rdt_slide_table = function(s){ 
   # assign variable to data and to design
   x = s$data

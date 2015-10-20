@@ -90,10 +90,11 @@ library(XML)		# load XML (parses through html code to extract links)
 
 # authentication page ####
 
+## JP credentials in login_credentials.txt
 
-your.username <- "jpainter@cdc.gov"
-your.password <- "maynard"
-your.project <- "Malaria Surveillance and Monitoring"
+your.username <- ""
+your.password <- ""
+your.project <- ""
 
 terms <- "https://dhsprogram.com/data/dataset_admin/login_main.cfm"
 

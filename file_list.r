@@ -43,8 +43,3 @@ nrow(files)
 
 View(files)
 
-# how many Household Member Recode.rda files?
-files %>% filter( file %in% 'Household Member Recode.rda') %>% 
-  group_by( country, survey) %>% summarise( n = n())
-
-
