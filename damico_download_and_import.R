@@ -206,6 +206,7 @@ for ( j in seq( length( country.numbers ) ) ){
   link.urls <- unlist( link.urls [ valid.surveys ] )
   
   # loop through each available data set within the country #
+  redownload == FASLE  # TRUE will result in redownload
   for ( this.link in link.urls ){
     
     # access each dataset's link
@@ -282,8 +283,8 @@ for ( j in seq( length( country.numbers ) ) ){
         # ..otherwise it's a microdata file!
       } else {
         
-  #  JP TODO: add code to prevent redownloading data
-  if ( !file.exists( paste0( cur.folder , ".rda" ) ) ){
+  #  JP add code to prevent redownloading data
+  if ( !file.exists( paste0( cur.folder , ".rda" & redownload == FALSE ) ) ){
         
         # figure out the url to download
         file.url <- all.links[ grep( y[ i , 'File Name' ] , all.links ) ]
@@ -321,7 +322,7 @@ for ( j in seq( length( country.numbers ) ) ){
           
         }
         
-      } 
+      } else {} 
       
         # if a file has not been saved as an rda yet,
         # look for an spss file as well.  this way, stata always takes priority.
