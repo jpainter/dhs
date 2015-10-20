@@ -92,6 +92,7 @@ rdt_slide_table = function(s){
 
 # get all slide/rdts 
 household_member_file = files %>% filter( file %in% 'Household Member Recode.rda') 
+View(household_member_file)
 
 d = NA # initialize variable for data.frame of results
 
@@ -99,7 +100,6 @@ for ( i in 1:nrow(household_member_file)){
   s = survey_data(
     country = household_member_file[i, "country"],
     survey_year = household_member_file[i, "survey_year"],
-    tab = "Household Member Recode" ,
     design = FALSE
   )
   
@@ -122,4 +122,120 @@ for ( i in 1:nrow(household_member_file)){
 
 View(d)
 
+# interactive charts
+#  Summarize over whole survey  ####
 
+paste( 'There are ', length(unique( d$country)) ,'countries with slide and rdt data')
+paste( 'There are ', length(unique( c(d$country, d$survey_year)))  ,'surveys with slide and rdt data')
+
+library(ggvis)
+
+d %>% 
+  group_by(country, survey_year) %>%
+  summarize(rdt = 100 * sum(result.rdt_pos) / sum(result.n) ,
+         slide = 100* sum(result.slide_pos) / sum(result.n) ) %>%
+  as.data.frame() %>%
+  ggvis(~slide, ~rdt) %>%
+  layer_points( fill = ~country) %>%
+  add_tooltip(function(df) df$slide) %>%
+  layer_model_predictions(formula = rdt ~ slide, model = "lm", se = TRUE)
+  
+library(ggplot2) 
+# lm_eqn function for labelling lm, from 
+# http://stackoverflow.com/questions/7549694/ggplot2-adding-regression-line-equation-and-r2-on-graph
+lm_eqn = function(m) {
+  
+  l <- list(a = format(coef(m)[1], digits = 2),
+            b = format(abs(coef(m)[2]), digits = 2),
+            r2 = format(summary(m)$r.squared, digits = 3));
+  
+  if (coef(m)[2] >= 0)  {
+    eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2,l)
+    eq <- substitute(italic(y) == a + b %.% italic(x), l)
+  } else {
+    eq <- substitute(italic(y) == a - b %.% italic(x)*","~~italic(r)^2~"="~r2,l)  
+    eq <- substitute(italic(y) == a - b %.% italic(x), l)  
+  }
+  
+  as.character(as.expression(eq));                 
+}
+
+df = d %>% 
+  group_by(country, survey_year) %>%
+  summarize(rdt = 100 * sum(result.rdt_pos) / sum(result.n) ,
+            slide = 100* sum(result.slide_pos) / sum(result.n) ) %>%
+  as.data.frame()
+
+  ggplot(df, aes(x = slide, y = rdt)) +
+  geom_point( aes(color = country), size = 6) +
+  geom_smooth(method=lm,  se=TRUE) +
+  annotate("text", x = 15, y = 40, label = lm_eqn(lm(rdt ~ slide, df)), parse = TRUE ) +
+  geom_abline(intercept = 0)
+
+# summarize by REGION #####
+  d %>% 
+    mutate(rdt = 100 * result.rdt_pos / result.n ,
+              slide = 100* result.slide_pos / result.n ) %>%
+    select( country, survey_year, rdt, slide) %>%
+    as.data.frame() %>%
+    ggvis(~slide, ~rdt) %>%
+    layer_points( fill = ~country) %>%
+    add_tooltip(function(df) df$slide) %>%
+    layer_model_predictions(formula = rdt ~ slide, model = "lm", se = TRUE)
+  
+  library(ggplot2) 
+  # lm_eqn function for labelling lm, from 
+  # http://stackoverflow.com/questions/7549694/ggplot2-adding-regression-line-equation-and-r2-on-graph
+  lm_eqn = function(m) {
+    
+    l <- list(a = format(coef(m)[1], digits = 2),
+              b = format(abs(coef(m)[2]), digits = 2),
+              r2 = format(summary(m)$r.squared, digits = 3));
+    
+    if (coef(m)[2] >= 0)  {
+      eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2,l)
+      eq <- substitute(italic(y) == a + b %.% italic(x), l)
+    } else {
+      eq <- substitute(italic(y) == a - b %.% italic(x)*","~~italic(r)^2~"="~r2,l)  
+      eq <- substitute(italic(y) == a - b %.% italic(x), l)  
+    }
+    
+    as.character(as.expression(eq));                 
+  }
+  
+  df = d %>% 
+    mutate(rdt = 100 * result.rdt_pos /result.n ,
+           slide = 100* result.slide_pos / result.n ,
+           discordant = 100 * result.discordant / result.n ,  
+           slide.pos_rdt.neg = 100 * result.slidepos_rdtneg / result.n ,  
+           slide.neg_rdt.pos = 100 * result.slideneg_rdtpos / result.n
+           ) %>%
+    as.data.frame()
+  
+  ggplot(df, aes(x = slide, y = rdt)) +
+    geom_point( aes(color = country), size = 4) +
+    geom_smooth(method=lm,  se=TRUE) +
+    annotate("text", x = 15, y = 40, label = lm_eqn(lm(rdt ~ slide, df)), parse = TRUE ) +
+    geom_abline(intercept = 0)
+  
+  ggplot(df, aes(x = slide, y = discordant )) +
+    geom_point( aes(color = country), size = 4) +
+    geom_smooth(method=lm,  se=TRUE) +
+    annotate("text", x = 15, y = 40, label = lm_eqn(lm( discordant ~ slide, df)), parse = TRUE ) +
+    ggtitle("rdt discordant")
+  
+  a = ggplot(df, aes(x = slide, y = slide.pos_rdt.neg)) +
+    geom_point( aes(color = country), size = 4) +
+    geom_smooth(method=lm,  se=TRUE) +
+    annotate("text", x = 15, y = 40, label = lm_eqn(lm( slide.pos_rdt.neg ~ slide, df)), parse = TRUE ) +
+    ggtitle("rdt discordant: slide.pos_rdt.neg")
+  
+  b = ggplot(df, aes(x = slide, y = slide.neg_rdt.pos)) +
+    geom_point( aes(color = country), size = 4) +
+    geom_smooth(method=lm,  se=TRUE) +
+    annotate("text", x = 15, y = 40, label = lm_eqn(lm( slide.neg_rdt.pos ~ slide, df)), parse = TRUE ) +
+    ggtitle("rdt discordant: slide.neg_rdt.pos")
+  
+  library(gridExtra)
+  grid.arrange(a, b, ncol = 1)
+  
