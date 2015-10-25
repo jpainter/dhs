@@ -87,7 +87,7 @@ rdt_slide_table = function(s){
 #   survey ="MIS",  # "Standard DHS"
 #   tab = "Household Member Recode"
 # )
-# 
+
 # rdt_slide_table(s)
 
 # get all slide/rdts 
@@ -105,7 +105,18 @@ for ( i in 1:nrow(household_member_file)){
   
   result = try( rdt_slide_table(s), silent = TRUE)
   
-  if ( class(result) %in% "try-error" ){ d.temp = NA} else {
+  if ( class(result) %in% "try-error" ){ 
+        print(paste( household_member_file[i, "country"], 
+                     household_member_file[i, "survey_year"], ":", 
+                     result[[1]])
+              )
+        d.temp = NA
+    } else {
+      print(paste( household_member_file[i, "country"],
+                   household_member_file[i, "survey_year"], 
+                   "has slide and rdt data")
+            )
+      
       d.temp = data.frame( country = household_member_file[i, "country"],
                     survey_year = household_member_file[i, "survey_year"],
                     result = result,
@@ -130,16 +141,64 @@ paste( 'There are ', length(unique( c(d$country, d$survey_year)))  ,'surveys wit
 
 library(ggvis)
 
-d %>% 
+d_country = 
+  d %>% 
   group_by(country, survey_year) %>%
   summarize(rdt = 100 * sum(result.rdt_pos) / sum(result.n) ,
-         slide = 100* sum(result.slide_pos) / sum(result.n) ) %>%
-  as.data.frame() %>%
-  ggvis(~slide, ~rdt) %>%
-  layer_points( fill = ~country) %>%
-  add_tooltip(function(df) df$slide) %>%
-  layer_model_predictions(formula = rdt ~ slide, model = "lm", se = TRUE)
-  
+            slide = 100* sum(result.slide_pos) / sum(result.n) ) %>%
+  as.data.frame() 
+
+    # add id field
+    d_country$id = 1:nrow(d_country)
+    
+    survey_label <- function(x) {
+      if(is.null(x)) return(NULL)
+      paste( d_country[x$id, "country"], d_country[x$id, "survey_year"])
+    }
+    
+    d_country %>%
+      ggvis(~slide, ~rdt) %>%
+      layer_model_predictions( model = "lm", se = TRUE) %>%
+      layer_points( fill = ~country, key := ~id) %>%
+      add_tooltip( survey_label, "hover")  
+
+d_region = 
+  d %>% 
+  rename( region = result.region) %>%
+  group_by(country, region, survey_year) %>%
+  summarize(rdt = 100 * sum(result.rdt_pos) / sum(result.n) ,
+            slide = 100* sum(result.slide_pos) / sum(result.n),
+            n = sum(result.n)) %>%
+  as.data.frame() 
+
+    # add id field
+    d_region$id = 1:nrow(d_region)
+    
+    survey_label <- function(x) {
+      if(is.null(x)) return(NULL)
+      paste( d_region[x$id, "country"], 
+             "region", d_region[x$id, "region"], 
+             d_region[x$id, "survey_year"], 
+             "n=", d_region[x$id, "n"])
+    }
+    
+    country <- as.vector(unique(d_region$country))
+    
+    d_region %>%
+      ggvis(~slide, ~rdt) %>%
+      filter(country == eval(input_select(
+            choices = country,
+            selected = "Tanzania",
+            label = "Country"))) %>%
+      layer_model_predictions( model = "lm", se = TRUE) %>%
+      layer_points( fill = ~country, key := ~id) %>%
+      add_axis("x", title = "Slide % Positive") %>%
+      add_axis("y", title = "RDT % Positive") %>%
+      scale_numeric("x", domain = c(0, 75)) %>%
+      scale_numeric("y", domain = c(0, 75)) %>%
+      add_tooltip( survey_label, "hover")  
+    
+      
 library(ggplot2) 
 # lm_eqn function for labelling lm, from 
 # http://stackoverflow.com/questions/7549694/ggplot2-adding-regression-line-equation-and-r2-on-graph
