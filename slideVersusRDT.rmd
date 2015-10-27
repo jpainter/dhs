@@ -1,0 +1,350 @@
+---
+title: "Slide vs RDT"
+runtime: shiny
+output: 
+  # ioslides_presentation: 
+  html_document:
+    css: shinyprezcss.css
+    fig_height: 6
+    fig_width: 10
+    number_sections: yes
+    toc: yes
+    
+
+---
+
+# Comparison of DHS and MIS malaria parasitemia estimates by microscopy (slides) with RDT 
+
+```{r,  echo = FALSE, eval=FALSE}
+
+# run this one time to get data set
+
+source("file_list.r")  
+
+source("getSurveyValue.R")
+
+# fetch each survey and keep data from those that have malaria test data
+rdt_slide_table = function(s){ 
+  # assign variable to data and to design
+  x = s$data
+  svy = s$design
+
+  # select key fields
+  slide.rdt = 
+    x %>% 
+    select( hhid, hvidx, hv005, hv021, hv023, hv024, hml32, hml35 ) %>% 
+    rename( 
+            psu = hv021,
+            strata = hv023,
+            region = hv024,
+            slide = hml32,
+            rdt = hml35)  %>%
+    mutate( 
+            weight = as.numeric( hv005 )
+            )
+  nrow(slide.rdt)
+  
+  has.data = complete.cases(slide.rdt[, c("slide", "rdt")])
+  
+  if ( sum(has.data) == 0) {
+    stop("slide and/or rdt values are all missing")
+  }
+  
+  # remove rows with no test  
+  slide.rdt = slide.rdt[has.data,] 
+  nrow(slide.rdt)
+  
+  # summarise by psu
+  compare = 
+    slide.rdt %>% 
+    group_by( region ) %>%
+    summarise( n = n(),
+               n_slide = sum( slide %in% 0:1 ),
+               n_rdt = sum( rdt %in% 0:1 ),
+               slide_pos  = sum(slide),
+               rdt_pos = sum(rdt),
+               discordant = sum( ifelse( slide != rdt, 1, 0) ),
+               slidepos_rdtneg = sum( ifelse( slide == 1 & rdt == 0, 1, 0) ),
+               slideneg_rdtpos = sum( ifelse( slide == 0 & rdt == 1, 1, 0) )
+               ) %>%
+    mutate( `%slide` = percent(slide_pos / n_slide),
+            `%rdt` = percent( rdt_pos / n_rdt),
+            `%discordant` = percent( discordant / n ),
+            `%slidepos_rdtneg` = percent( slidepos_rdtneg / n),
+            `%slideneg_rdtpos` = percent( slideneg_rdtpos / n)
+            ) %>%
+    select( -n_slide, -n_rdt)
+
+  return(compare)
+}
+
+# rdt_slide_table(s)
+
+# get all slide/rdts 
+household_member_file = files %>% filter( file %in% 'Household Member Recode.rda') 
+
+d = NA # initialize variable for data.frame of results
+
+for ( i in 1:nrow(household_member_file)){
+  s = survey_data(
+    country = household_member_file[i, "country"],
+    survey_year = household_member_file[i, "survey_year"],
+    design = FALSE
+  )
+  
+  result = try( rdt_slide_table(s), silent = TRUE)
+  
+  if ( class(result) %in% "try-error" ){ 
+        print(paste( household_member_file[i, "country"], 
+                     household_member_file[i, "survey_year"], ":", 
+                     result[[1]])
+              )
+        d.temp = NA
+    } else {
+      print(paste( household_member_file[i, "country"],
+                   household_member_file[i, "survey_year"], 
+                   "has slide and rdt data")
+            )
+      
+      d.temp = data.frame( country = household_member_file[i, "country"],
+                    survey_year = household_member_file[i, "survey_year"],
+                    result = result,
+                    stringsAsFactors = FALSE
+    )
+  }
+
+  if (is.na(d)){
+    d = d.temp
+  } else {
+    if (!is.na(d.temp) ) d = rbind(d, d.temp)
+  }
+}
+
+save(d, file = "d.rda")
+
+```
+
+```{r, echo= FALSE, include= FALSE}
+
+load("d.rda")
+source("getSurveyValue.R")
+
+country <- as.vector(unique(d$country))
+
+# paste( 'There are ', length(unique( d$country)) ,'countries with slide and rdt data')
+# paste( 'There are ', length(unique( c(d$country, d$survey_year)))  ,'surveys with slide and rdt data')
+
+library(DT)  
+require(dplyr)
+library(ggvis)
+
+
+```
+
+## by country
+
+```{r, echo=FALSE, message= FALSE}
+
+  d_country = 
+  d %>% 
+  group_by(country, survey_year) %>%
+  summarize(
+    n = sum(result.n),
+    rdt = 100 * sum(result.rdt_pos) / n ,
+    slide = 100* sum(result.slide_pos) / n ) %>%
+  as.data.frame() 
+
+    # add id field
+    d_country$id = 1:nrow(d_country)
+#     
+    survey_label_country <- function(x) {
+      if(is.null(x)) return(NULL)
+      paste( d_country[x$id, "country"], d_country[x$id, "survey_year"])
+    }
+#     
+    reference_line = data.frame( x= c(0,85), y = c(0,85))
+    
+    d_country %>%
+      ggvis(~slide, ~rdt) %>%
+      layer_model_predictions( model = "lm", se = TRUE) %>%
+      layer_points( fill = ~country, key := ~id) %>%
+      add_tooltip( survey_label_country, "hover") %>%
+      add_axis("x", title = "Slide % Positive") %>%
+      add_axis("y", title = "RDT % Positive") %>%
+      scale_numeric("x", domain = c(0, 85)) %>%
+      scale_numeric("y", domain = c(0, 85)) %>%
+      layer_paths( data = reference_line, x = ~x, y= ~y)
+#
+ 
+# regression
+    linear = lm( rdt ~ slide, data = d_country)
+    # summary(linear)
+    `Linear Regression` = as.data.frame(cbind(round(linear$coefficients, 2),
+                                              confint(linear))
+                                        )
+    names(`Linear Regression`) = c("Estimate", "LL", "UL")
+    rownames(`Linear Regression`) = c("Intercept", "Slope")
+
+    renderTable( `Linear Regression` )
+```
+
+##
+
+```{r, echo=FALSE, message= FALSE}
+
+  observe({
+    if (!is.null(input$myTable) && input$myTable != -1)
+      updateTextInput(session, "myTextArea", value = retrieveAbstract(input$myTable))
+  })
+    
+renderTable({ d_country  })
+    
+#    DT::datatable( d_country ,
+# options = list(rowCallback = JS('
+#             function(nRow, aData, iDisplayIndex, iDisplayIndexFull) {
+#                                       // Bold and green cells for conditions
+#                                       if (parseFloat(aData[3]) >= 20)
+#                                       $("td:eq(3)", nRow).css("font-weight", "bold");
+#                                       if (parseFloat(aData[3]) >= 10)
+#                                       $("td:eq(3)", nRow).css("background-color", "#9BF59B");
+#                                        }')
+# ))
+
+ 
+    
+
+```
+
+## country-region
+
+```{r, echo=FALSE, message=FALSE}
+    
+  survey_label_cr <- function(x) {
+      dd = d_cr()
+      if(is.null(x)) return(NULL)
+      paste( dd[x$id, "country"], 
+             "region", dd[x$id, "region"], 
+             dd[x$id, "survey_year"], 
+             "n=", dd[x$id, "n"])
+    }
+
+  d_cr =  reactive({
+    d %>%
+    rename( region = result.region) %>%
+    group_by(country, region, survey_year) %>%
+    summarize(
+      n = sum(result.n),
+      rdt = 100 * sum(result.rdt_pos) / n ,
+      slide = 100* sum(result.slide_pos) / n ,
+      survey_name = paste(country, survey_year)
+              ) %>%
+    as.data.frame() %>%
+    mutate( id = row_number()) 
+  })    
+
+
+    d_cr %>% 
+      ggvis(~slide, ~rdt ) %>%
+      layer_model_predictions( model = "lm", se = TRUE
+                               ) %>%
+      ungroup() %>%
+      layer_points( fill = ~survey_name, key := ~id) %>%
+      add_tooltip( survey_label_cr, "hover") %>%
+      add_axis("x", title = "Slide % Positive") %>%
+      add_axis("y", title = "RDT % Positive") %>%
+      scale_numeric("x", domain = c(0, 85)) %>%
+      scale_numeric("y", domain = c(0, 85)) %>%
+      layer_paths( data = reference_line, x = ~x, y= ~y)
+    
+# Regression    
+  table.cr = reactive({
+      linear.cr =  lm( rdt ~ slide, data = d_cr() ) 
+      t = as.data.frame(cbind(round(linear.cr$coefficients, 2),
+                                              confint(linear.cr))
+                                        )
+      names(t) = c("Estimate", "LL", "UL")
+      rownames(t) = c("Intercept", "Slope")
+      return(t)
+  })
+
+  renderTable( table.cr() )
+  
+    
+```
+
+## Select Country
+
+```{r , echo=FALSE, message= FALSE}
+# By REGION
+    
+renderText( "For all countries there is some disagreement between the population rates of RDT and microcopy.  For some, there is substantial deviation. SEE: Burundi, Cote d'Ivoire, Gambia, Rwanda, and Tanzania")
+
+inputPanel(
+
+  selectInput("Country", label = "Country",
+              choices = country, selected = "")
+)
+ 
+    survey_label <- function(x) {
+      dd = d_r()
+      if(is.null(x)) return(NULL)
+      # paste(nrow(dd))
+      paste( dd[x$id, "country"], 
+             "region", dd[x$id, "region"], 
+             dd[x$id, "survey_year"], 
+             "n=", dd[x$id, "n"])
+    }
+
+  
+  d_r =  reactive({
+    d %>%
+    # d[ country_selected, ] %>% 
+    filter( (country %in% 
+               ifelse( length(eval(input$Country))==0, 
+                                         "Angola",
+                                         eval(input$Country))) 
+            ) %>%
+    # filter( (country %in% country_selected) ) %>%
+    rename( region = result.region) %>%
+    group_by(country, region, survey_year) %>%
+    summarize(
+      n = sum(result.n),
+      rdt = 100 * sum(result.rdt_pos) / n ,
+      slide = 100* sum(result.slide_pos) / n ,
+      survey_name = paste(country, survey_year)
+              ) %>%
+    as.data.frame() %>%
+    mutate( id = row_number()) 
+  })    
+
+    d_r %>% 
+      group_by( survey_name) %>%
+      ggvis(~slide, ~rdt ) %>%
+      layer_model_predictions( model = "lm", se = TRUE
+                               ) %>%
+      ungroup() %>%
+      layer_points( fill = ~survey_name, key := ~id) %>%
+      add_tooltip( survey_label, "hover") %>%
+      add_axis("x", title = "Slide % Positive") %>%
+      add_axis("y", title = "RDT % Positive") %>%
+      scale_numeric("x", domain = c(0, 85)) %>%
+      scale_numeric("y", domain = c(0, 85)) %>%
+      layer_paths( data = reference_line, x = ~x, y= ~y)
+
+# Regression    
+  table.r = reactive({
+      linear.r =  lm( rdt ~ slide, data = d_r() ) 
+      # t = as.data.frame(round(linear.r$coefficients, 2))
+      t = as.data.frame(cbind(round(linear.r$coefficients, 2),
+                                              confint(linear.r))
+                                        )
+      names(t) = c("Estimate", "LL", "UL")
+      rownames(t) = c("Intercept", "Slope")
+      return(t)
+  })
+
+  renderTable( table.r() )
+  
+      
+```
+
