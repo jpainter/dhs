@@ -1,7 +1,7 @@
 # loop through dhs data folders
 
 # populated by three subfolders
-folders <- list.dirs(full.names = TRUE)
+folders <- list.dirs("../DHS", full.names = TRUE)
 
 files = NA
 
@@ -30,8 +30,8 @@ library(dplyr)
 files = files %>%
   filter( !dir.exists( paste0(folder, "/", file))) %>%
   mutate( 
-    country = unlist( lapply( strsplit( folder, "/", fixed = TRUE), function(x) x[2]) ),
-    survey_year = unlist( lapply(strsplit( folder, "/", fixed = TRUE), function(x) x[3] ) ),
+    country = unlist( lapply( strsplit( folder, "/", fixed = TRUE), function(x) x[3]) ),
+    survey_year = unlist( lapply(strsplit( folder, "/", fixed = TRUE), function(x) x[4] ) ),
     gis = lapply( strsplit( folder, "/", fixed = TRUE), function(x) x[4] ) %in% "Supplemental"
 )  %>%
   mutate(

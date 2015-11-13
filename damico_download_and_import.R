@@ -167,6 +167,10 @@ country.names <- country.names[ -which( country.names == "Select Region" ):-leng
 country.numbers <- country.numbers[ -1 ]
 country.names <- country.names[ -1 ]
 
+# Remove indonesia because it seems to fail ... and India, because it is toooo big (JP)
+skip.these = c("Indonesia", "India", "Bangladesh", "Cambodia")
+country.numbers = country.numbers[ -which(country.names %in% skip.these ) ]
+country.names = country.names[ -which(country.names %in% skip.these ) ]
 
 # loop through each available country #####
 for ( j in seq( length( country.numbers ) ) ){
@@ -175,6 +179,8 @@ for ( j in seq( length( country.numbers ) ) ){
   this.number <- country.numbers[ j ]
   # ..and current country name
   this.name <- country.names[ j ] 
+  
+  cat( this.name, "\n") # JP
   
   # create the country directory on the local disk
   dir.create( paste0( "./" , this.name ) )
@@ -228,8 +234,12 @@ for ( j in seq( length( country.numbers ) ) ){
     # keep only /data/dataset/ links
     data.link <- unique( all.links[ grepl( "/data/dataset/" , all.links ) ] )
     
-    # there's only one of these urls.
-    stopifnot( length( data.link ) == 1 )
+    # there's only one of these urls. e.g. (JP)
+        # [1] "/data/dataset/Indonesia_Standard-DHS_2012.cfm"       
+        # [2] "/data/dataset/Indonesia_Standard-DHS_2012.cfm?flag=1"
+    if( !length( data.link ) == 1 ){
+      data.link = data.link[1]  # take first value (JP)
+    }
     
     # follow the dataset-link again
     z <- GET( paste0( "https://dhsprogram.com" , data.link ) )
@@ -237,23 +247,29 @@ for ( j in seq( length( country.numbers ) ) ){
     # now pull all the file names, sizes, and titles
     ytab <- readHTMLTable( content( z ) )
     
+    
     # if it's more than just the main survey, stack 'em
     if ( length( ytab ) == 1 ) y <- ytab[[1]] else {
-      y <- ytab[[1]]
-      for ( k in seq( 2 , length( ytab ) ) ){
-        
-        hsep <- data.frame( "File Name" = "Supplemental" , "File Size" = NA , "File Format" = NA )
-        names( hsep ) <- c( "File Name" , "File Size" , "File Format" )
-        
-        names( ytab[[k]] ) <- gsub( "File Name( *)" , "File Name" , names( ytab[[k]] ) )
-        
-        y <- 
-          rbind( 
-            y , 
-            hsep ,
-            ytab[[k]]
-          )
-      }
+      
+      # remove null elements (JP): problem with Indonesia Standard DHS 2012
+      # if (sum( sapply(ytab, is.null) , na.rm = TRUE) > 0 ){ y = NA } else {
+      
+        y <- ytab[[1]]
+        for ( k in seq( 2 , length( ytab ) ) ){
+          
+          hsep <- data.frame( "File Name" = "Supplemental" , "File Size" = NA , "File Format" = NA )
+          names( hsep ) <- c( "File Name" , "File Size" , "File Format" )
+          names( ytab[[k]] ) <- gsub( "File Name( *)" , "File Name" , names( ytab[[k]] ) )
+          
+          
+          y <- 
+            rbind( 
+              y , 
+              hsep ,
+              ytab[[k]]
+            )
+        }
+      # }
     }
     
     # also find the country codes and links
@@ -288,7 +304,30 @@ for ( j in seq( length( country.numbers ) ) ){
       } else {
         
   #  JP add code to prevent redownloading data
-  if ( !file.exists( paste0( cur.folder , ".rda")) | redownload == TRUE )  {
+  if ( 
+    (
+      (
+      !(
+        grepl("Supplemental", cur.folder, ignore.case = TRUE) &
+                    !grepl("Recode", cur.folder, ignore.case = TRUE) &
+                    !grepl("HIV", cur.folder, ignore.case = TRUE) &
+                    !grepl("Raw", cur.folder, ignore.case = TRUE)
+      ) &
+    (!file.exists( paste0( cur.folder , ".rda")) | redownload == TRUE)
+       ) |
+    (
+      grepl("Supplemental", cur.folder, ignore.case = TRUE) &
+                    !grepl("Recode", cur.folder, ignore.case = TRUE) &
+                    !grepl("HIV", cur.folder, ignore.case = TRUE) &
+                    !grepl("Raw", cur.folder, ignore.case = TRUE)
+      ) &
+    (
+      !file.exists( paste( cur.folder , tolower( gsub( " System file| data" , "" , y[ i , 'File Format' ] ) ) , sep = '/' )
+        )
+     ) 
+    ) & # not authorized to download HIV folders
+    !grepl("HIV", cur.folder, ignore.case = TRUE) 
+    ){
         
         # figure out the url to download
         file.url <- all.links[ grep( y[ i , 'File Name' ] , all.links ) ]
@@ -326,11 +365,22 @@ for ( j in seq( length( country.numbers ) ) ){
           
         }
         
-      } else {} 
+      } 
       
-        # if a file has not been saved as an rda yet,
-        # look for an spss file as well.  this way, stata always takes priority.
-        if ( !file.exists( paste0( cur.folder , ".rda" ) ) ){
+      # if a file has not been saved as an rda yet,
+      # look for an spss file as well.  this way, stata always takes priority.
+      if ( 
+          !(
+              grepl("Supplemental", cur.folder, ignore.case = TRUE) &
+                    !grepl("Recode", cur.folder, ignore.case = TRUE) &
+                    !grepl("HIV", cur.folder, ignore.case = TRUE) &
+                    !grepl("Raw", cur.folder, ignore.case = TRUE)
+            ) &
+          !file.exists( paste0( cur.folder , ".rda" ) ) & 
+          # not authorized to download HIV folders
+          !grepl("HIV", cur.folder, ignore.case = TRUE) 
+
+          ){
           
           # if there's any spss file, import it!
           if ( any( st <- grepl( "\\.sav$" , tolower( z ) ) ) ){
@@ -349,7 +399,14 @@ for ( j in seq( length( country.numbers ) ) ){
           }
           
         } else {  # JP: delete folder with non-rda data files
-                  if ( !( cur.folder %in% "Supplemental") ){  
+                  if ( 
+                    !(
+                    grepl("Supplemental", cur.folder, ignore.case = TRUE) &
+                          !grepl("Recode", cur.folder, ignore.case = TRUE) &
+                          !grepl("HIV", cur.folder, ignore.case = TRUE) &
+                          !grepl("Raw", cur.folder, ignore.case = TRUE)
+                    ) 
+                          ){  
                     
                       unlink( cur.folder, recursive = TRUE) 
                     }
@@ -387,3 +444,4 @@ message( "if others might benefit, send your code to ajdamico@gmail.com" )
 # "only you can prevent forest fires" -smokey bear
 # "take a bite out of crime" -mcgruff the crime pooch
 # "plz gimme your statistical programming" -anthony damico
+

@@ -22,7 +22,7 @@ survey_data = function(
   if ( is.na(survey_year) ){
     survey_year = paste(survey, year)
   }
-  file = paste0("./", 
+  file = paste0("../DHS/",
                 ifelse( country %in% "DRC", "Congo Democratic Republic", country),
                 "/", survey_year, "/", tab, ".rda") 
   print(file); flush.console()

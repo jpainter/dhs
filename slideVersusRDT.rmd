@@ -9,8 +9,6 @@ output:
     fig_width: 10
     number_sections: yes
     toc: yes
-    
-
 ---
 
 # Comparison of DHS and MIS malaria parasitemia estimates by microscopy (slides) with RDT 
