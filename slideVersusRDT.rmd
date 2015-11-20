@@ -21,6 +21,12 @@ source("file_list.r")
 
 source("getSurveyValue.R")
 
+  # percent forumula that respects zero
+  my.percent<- function(x) {
+    if(length(x)==1) if(x==0) return(paste0(0,"%") )
+    return(percent(x) )
+  }
+  
 # fetch each survey and keep data from those that have malaria test data
 rdt_slide_table = function(s){ 
   # assign variable to data and to design
@@ -52,26 +58,26 @@ rdt_slide_table = function(s){
   slide.rdt = slide.rdt[has.data,] 
   nrow(slide.rdt)
   
+  
   # summarise by psu
   compare = 
     slide.rdt %>% 
-    group_by( region ) %>%
+    group_by( region, psu ) %>%
     summarise( n = n(),
                n_slide = sum( slide %in% 0:1 ),
                n_rdt = sum( rdt %in% 0:1 ),
-               slide_pos  = sum(slide),
-               rdt_pos = sum(rdt),
-               discordant = sum( ifelse( slide != rdt, 1, 0) ),
-               slidepos_rdtneg = sum( ifelse( slide == 1 & rdt == 0, 1, 0) ),
-               slideneg_rdtpos = sum( ifelse( slide == 0 & rdt == 1, 1, 0) )
+               slide_pos  = sum(slide %in% 1),
+               rdt_pos = sum(rdt %in% 1),
+               slidepos_rdtneg = sum( ifelse( slide %in% 1 & rdt %in% 0, 1, 0) ),
+               slideneg_rdtpos = sum( ifelse( slide %in% 0 & rdt %in% 1, 1, 0) ),
+               discordant = sum(slidepos_rdtneg , slideneg_rdtpos, na.rm = TRUE)
                ) %>%
-    mutate( `%slide` = percent(slide_pos / n_slide),
-            `%rdt` = percent( rdt_pos / n_rdt),
-            `%discordant` = percent( discordant / n ),
-            `%slidepos_rdtneg` = percent( slidepos_rdtneg / n),
-            `%slideneg_rdtpos` = percent( slideneg_rdtpos / n)
-            ) %>%
-    select( -n_slide, -n_rdt)
+    mutate( `%slide` = my.percent(slide_pos / n_slide),
+            `%rdt` = my.percent( rdt_pos / n_rdt),
+            `%slidepos_rdtneg` = my.percent( slidepos_rdtneg / n),
+            `%slideneg_rdtpos` = my.percent( slideneg_rdtpos / n),
+            `%discordant` = my.percent( discordant / n )
+            ) 
 
   return(compare)
 }
@@ -83,7 +89,7 @@ household_member_file = files %>% filter( file %in% 'Household Member Recode.rda
 
 d = NA # initialize variable for data.frame of results
 
-for ( i in 1:nrow(household_member_file)){
+for ( i in 1:nrow(household_member_file) ){
   s = survey_data(
     country = household_member_file[i, "country"],
     survey_year = household_member_file[i, "survey_year"],
@@ -92,7 +98,7 @@ for ( i in 1:nrow(household_member_file)){
   
   result = try( rdt_slide_table(s), silent = TRUE)
   
-  if ( class(result) %in% "try-error" ){ 
+  if ( class(result) == "try-error" ){ 
         print(paste( household_member_file[i, "country"], 
                      household_member_file[i, "survey_year"], ":", 
                      result[[1]])
@@ -104,10 +110,9 @@ for ( i in 1:nrow(household_member_file)){
                    "has slide and rdt data")
             )
       
-      d.temp = data.frame( country = household_member_file[i, "country"],
-                    survey_year = household_member_file[i, "survey_year"],
-                    result = result,
-                    stringsAsFactors = FALSE
+      d.temp = result %>%
+        mutate( country = household_member_file[i, "country"],
+                    survey_year = household_member_file[i, "survey_year"]
     )
   }
 
@@ -134,7 +139,10 @@ country <- as.vector(unique(d$country))
 
 library(DT)  
 require(dplyr)
+require(tidyr)
 library(ggvis)
+library(ggplot2)
+library(gridExtra)
 
 
 ```
@@ -146,10 +154,12 @@ library(ggvis)
   d_country = 
   d %>% 
   group_by(country, survey_year) %>%
-  summarize(
-    n = sum(result.n),
-    rdt = 100 * sum(result.rdt_pos) / n ,
-    slide = 100* sum(result.slide_pos) / n ) %>%
+  summarise(
+    n = sum(n),
+    n_rdt = sum(n_rdt),
+    n_slide = sum(n_slide),
+    rdt = 100 * sum(rdt_pos) / n_rdt ,
+    slide = 100* sum(slide_pos) / n_slide ) %>%
   as.data.frame() 
 
     # add id field
@@ -226,18 +236,20 @@ renderTable({ d_country  })
              "n=", dd[x$id, "n"])
     }
 
-  d_cr =  reactive({
-    d %>%
-    rename( region = result.region) %>%
-    group_by(country, region, survey_year) %>%
-    summarize(
-      n = sum(result.n),
-      rdt = 100 * sum(result.rdt_pos) / n ,
-      slide = 100* sum(result.slide_pos) / n ,
-      survey_name = paste(country, survey_year)
-              ) %>%
-    as.data.frame() %>%
-    mutate( id = row_number()) 
+  d_cr =  
+    reactive({
+      d %>%
+      mutate(survey_name = paste(country, survey_year)) %>%
+      group_by(country, region, survey_name) %>%
+      summarise(
+        n = sum(n),
+        n_rdt = sum(n_rdt),
+        n_slide = sum(n_slide),
+        rdt = 100 * sum(rdt_pos) / n_rdt ,
+        slide = 100* sum(slide_pos) / n_slide 
+                ) %>%
+      as.data.frame() %>%
+      mutate( id = row_number()) 
   })    
 
 
@@ -303,16 +315,17 @@ inputPanel(
                                          eval(input$Country))) 
             ) %>%
     # filter( (country %in% country_selected) ) %>%
-    rename( region = result.region) %>%
     group_by(country, region, survey_year) %>%
-    summarize(
-      n = sum(result.n),
-      rdt = 100 * sum(result.rdt_pos) / n ,
-      slide = 100* sum(result.slide_pos) / n ,
-      survey_name = paste(country, survey_year)
+    summarise(
+      n = sum(n),
+      n_rdt = sum(n_rdt),
+      n_slide = sum(n_slide),
+      rdt = 100 * sum(rdt_pos) / n_rdt ,
+      slide = 100* sum(slide_pos) / n_slide 
               ) %>%
     as.data.frame() %>%
-    mutate( id = row_number()) 
+    mutate( id = row_number(),
+            survey_name = paste(country, survey_year)) 
   })    
 
     d_r %>% 
@@ -345,4 +358,141 @@ inputPanel(
   
       
 ```
+
+
+## Variation within Region
+
+Within each Region, the percent RDT and percent slide positive are calculated for each survey cluster.  Comparing the variance of these values may indicate the relative level of accuracy and repeatability of each method.
+
+
+```{r, echo=FALSE, variance,  message= FALSE, eval=TRUE}
+# 
+ 
+  d_psu =  reactive({
+    d %>%
+    filter( (country %in% 
+               ifelse( length(eval(input$Country))==0, 
+                                         "Angola",
+                                         eval(input$Country))) 
+            ) %>%
+    group_by(country, survey_year, region, psu ) %>%
+    summarise(
+      n = sum(n),
+      n_rdt = sum(n_rdt),
+      n_slide = sum(n_slide),
+      rdt = 100 * sum(rdt_pos) / n_rdt ,
+      slide = 100* sum(slide_pos) / n_slide 
+              ) %>%
+    as.data.frame() %>%
+   gather(test, perc_pos, rdt, slide) %>%
+    mutate( id = row_number(),
+      survey_name = paste(country, survey_year)) %>%
+   arrange(country, survey_year, region, psu, test)
+    
+  })
+
+
+
+  # ggvis 
+#     d_psu %>% 
+#       ggvis(~factor(region), ~test) %>%
+#       ungroup() %>%
+#       layer_points( fill = ~test, key := ~id) %>%
+#       add_tooltip( survey_label, "hover") %>%
+#       add_axis("x", title = "Region") %>%
+#       add_axis("y", title = "% Positive") %>%
+#       # scale_numeric("x", domain = c(0, 85)) %>%
+#       scale_numeric("y", domain = c(0, 85)) 
+  
+  
+   
+renderPlot({
+
+     a = d_psu() %>% 
+       mutate(region = factor(region)) %>%
+      ggplot( aes(region, perc_pos)) +
+      geom_boxplot(aes(fill = test)) +
+       facet_grid(survey_year ~ .)
+    
+     b = d_psu() %>% 
+       mutate(region = factor(region) )%>%
+       group_by(survey_year, region, test) %>%
+       summarise(
+         std = sd(perc_pos)
+       ) %>%
+      ggplot( aes(region, std)) +
+      geom_point(aes(color = test), size = 4, 
+                 position = position_jitter(w = 0.1, h = 0.1)) +
+      facet_grid(survey_year ~ .)
+
+  grid.arrange(a,b, ncol=1)    
+})   
+
+# renderTable(d_psu())
+```
+
+# Pooled Variance
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE, pooled_variance}
+
+  d_psus =  
+    d %>%
+    group_by(country, survey_year, region, psu ) %>%
+    summarise(
+      n = sum(n),
+      n_rdt = sum(n_rdt),
+      n_slide = sum(n_slide),
+      rdt = 100 * sum(rdt_pos) / n_rdt ,
+      slide = 100* sum(slide_pos) / n_slide 
+              ) %>%
+    as.data.frame() %>%
+   gather(test, perc_pos, rdt, slide) %>%
+    mutate( id = row_number(),
+      survey_name = paste(country, survey_year)) %>%
+   arrange(country, survey_year, region, psu, test)
+    
+# weighted std across regions 
+  pooled_psu= 
+    d_psus %>% 
+       mutate(region = factor(region) ,
+              test = factor(test)
+              ) %>%
+       group_by(country, survey_year, region, test) %>%
+       summarise(
+         n = sum(n),
+         std = sd(perc_pos)
+       ) %>%
+      group_by(country, survey_year, test) %>%
+    summarise(
+      n = n(),
+      pooled_sd = sqrt( sum(std^2 * (n - 1)) / (sum(n - 1)) )
+    ) %>%
+    mutate(
+      id = paste(country, survey_year)
+    )
+    
+# nrow(pooled_psu)
+  
+  ggplot(pooled_psu, aes(x = test, y= pooled_sd, color = test) ) +
+           geom_point() + 
+    geom_line( aes(group = id))
+  
+  pooled_psu %>% 
+   spread(test, pooled_sd) %>%
+  ggplot(aes(x = slide, y= rdt) ) + 
+    geom_point() + 
+    geom_smooth(method = "lm") +
+    geom_abline(slope = 1 , intercept = 0)
+    
+# weighted std across all surveys 
+  pooled_survey_sd= 
+    pooled_psu %>% 
+    group_by(test) %>%
+    summarise(
+      pooled_sd = sqrt( sum(pooled_sd^2 * (n - 1), na.rm = TRUE) / (sum(n - 1, na.rm = TRUE)) )
+    ) 
+    
+  renderTable( pooled_survey_sd )
+```
+
 
