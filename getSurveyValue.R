@@ -28,7 +28,7 @@ survey_data = function(
   print(file); flush.console()
   load( file ) # file will be loaded as 'x'
   
-  if (tab %in% "Household Member Recode"){
+  if (tab %in% c("Household Member Recode", "Household Recode") ){
       x$weight <- as.numeric( x$hv005 )
       x$strata <- x$hv023 ## Nigeria (JP)
       x$psu = x$hv021 # (JP)

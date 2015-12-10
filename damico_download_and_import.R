@@ -3,6 +3,14 @@
 # all available years
 # all approved countries  
 
+
+####################################################################################
+# download every file from every year of the Demographic and Health Surveys with R #
+# then save every file as an R data frame (.rda) so future analyses can be rapid   #
+####################################################################################
+
+# PREAMBLE #####
+
 # # # # # # # # # # # # # # # # #
 # # block of code to run this # #
 # # # # # # # # # # # # # # # # #
@@ -29,13 +37,6 @@
 
 # for further reading on cross-package comparisons, see:
 # http://journal.r-project.org/archive/2009-2/RJournal_2009-2_Damico.pdf
-
-
-####################################################################################
-# download every file from every year of the Demographic and Health Surveys with R #
-# then save every file as an R data frame (.rda) so future analyses can be rapid   #
-####################################################################################
-
 
 # # # # # # # # # # # # # #
 # important user warning! #
@@ -71,7 +72,6 @@
 # ..in order to set your current working directory
 
 
-
 # remove the # in order to run this install.packages line only once
 # install.packages( c( "XML" , "httr" ) )
 
@@ -86,7 +86,6 @@
 library(foreign) 	# load foreign package (converts data files into R)
 library(httr)		# load httr package (downloads files from the web, with SSL and cookies)
 library(XML)		# load XML (parses through html code to extract links)
-
 
 # authentication page ####
 
@@ -117,7 +116,7 @@ values <-
     UserPass = your.password 
   )
 
-# log in.
+# log in and get list of countires and datasets...  ####
 GET( terms , query = values )
 POST( terms , body = values )
 
@@ -155,7 +154,7 @@ z <-
   )
 
 
-# figure out which countries are available for download
+# figure out which countries are available for download 
 country.names <- xpathSApply( content( z ) , "//option" , xmlValue )
 country.numbers <- xpathSApply( content( z ) , "//option" , xmlGetAttr , "value" )
 
@@ -172,7 +171,11 @@ skip.these = c("Indonesia", "India", "Bangladesh", "Cambodia")
 country.numbers = country.numbers[ -which(country.names %in% skip.these ) ]
 country.names = country.names[ -which(country.names %in% skip.these ) ]
 
-# loop through each available country #####
+# SET option to redownload if dataset already exists (FALSE will only download new data) ####
+redownload = FALSE  # TRUE will result in redownload
+
+## loop through each available country #####
+  
 for ( j in seq( length( country.numbers ) ) ){
   
   # extract the current country number..
@@ -214,8 +217,7 @@ for ( j in seq( length( country.numbers ) ) ){
   link.names <- unlist( link.names [ valid.surveys ] )
   link.urls <- unlist( link.urls [ valid.surveys ] )
   
-  # loop through each available data set within the country #
-  redownload = FALSE  # TRUE will result in redownload
+### loop through each available data set within the country #####
   
   for ( this.link in link.urls ){
     
@@ -365,8 +367,45 @@ for ( j in seq( length( country.numbers ) ) ){
           
         }
         
+        ####  import any MAP files (JP)
+        if ( any( st <- grepl( "\\.map$" , tolower( z ) ) ) ){
+    
+          # load function to read MAP file
+          source("readMAPfile.R")
+          
+          
+          for (zfile in z[which(st)]){
+            
+            mapfilename = tail( strsplit(zfile, "/")[[1]], 1 )
+            
+            # if more than one map file, then add letters to end (e.g. _A, _B)
+            if ( length(z[which(st)])>1 ){ 
+              fileletter = paste0("_", LETTERS[ which( zfile == z[which(st)] ) ]) 
+            } else { fileletter = "" }
+            
+            file.copy( zfile, paste0( cur.folder , fileletter, ".MAP" ), overwrite = redownload)
+            
+            # load the current stata file into working memory
+            # NB: function throws lots of warning messages while parsing.  does not affect result.
+            
+            # TURN OFF WARNINGS
+            oldw <- getOption("warn")
+            options(warn = -1)
+            
+            # process map file
+            map = parseMAPfile( paste0( cur.folder , fileletter, ".MAP" )  )
+            
+            # TURN WARNINGS BACK ON
+            options(warn = oldw)
+            
+            # save the file on the local disk, within the appropriate country-survey filepath
+            save( map , file = paste0( cur.folder , fileletter , ".map.rda" ) )
+          }
+        }
+        
       } 
-      
+        
+        
       # if a file has not been saved as an rda yet,
       # look for an spss file as well.  this way, stata always takes priority.
       if ( 
@@ -400,12 +439,7 @@ for ( j in seq( length( country.numbers ) ) ){
           
         } else {  # JP: delete folder with non-rda data files
                   if ( 
-                    !(
-                    grepl("Supplemental", cur.folder, ignore.case = TRUE) &
-                          !grepl("Recode", cur.folder, ignore.case = TRUE) &
-                          !grepl("HIV", cur.folder, ignore.case = TRUE) &
-                          !grepl("Raw", cur.folder, ignore.case = TRUE)
-                    ) 
+                    !grepl("Supplemental", cur.folder, ignore.case = TRUE)
                           ){  
                     
                       unlink( cur.folder, recursive = TRUE) 
@@ -421,15 +455,18 @@ for ( j in seq( length( country.numbers ) ) ){
 
 }
 
-# delete the temporary file.. ####
+#### delete the temporary file.. #####
 file.remove( tf )
 
 # ..and temporary directory on the local disk
 unlink( td , recursive = TRUE )
 
+
+# FINAL MESSAGES ####
+
+
 # print a reminder: set the directory you just saved everything to as read-only!
 message( paste0( "all done. you should set the folder " , getwd() , " read-only so you don't accidentally alter these tables." ) )
-
 
 # for more details on how to work with data in r
 # check out my two minute tutorial video site
