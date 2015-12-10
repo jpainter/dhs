@@ -2,7 +2,7 @@
 title: "Slide vs RDT"
 runtime: shiny
 output: 
-  # ioslides_presentation: 
+  # ioslides_presentation 
   html_document:
     css: shinyprezcss.css
     fig_height: 6
@@ -11,7 +11,7 @@ output:
     toc: yes
 ---
 
-# Comparison of DHS and MIS malaria parasitemia estimates by microscopy (slides) with RDT 
+# A Comparison of DHS and MIS malaria parasitemia estimates by microscopy (slides) with RDT 
 
 ```{r,  echo = FALSE, eval=FALSE}
 
@@ -20,6 +20,8 @@ output:
 source("file_list.r")  
 
 source("getSurveyValue.R")
+
+library(survey)
 
   # percent forumula that respects zero
   my.percent<- function(x) {
@@ -36,27 +38,38 @@ rdt_slide_table = function(s){
   # select key fields
   slide.rdt = 
     x %>% 
-    select( hhid, hvidx, hv005, hv021, hv023, hv024, hml32, hml35 ) %>% 
+    # select( hhid, hvidx, hv005, hv021, hv023, hv024, hml32, hml35 ) %>% 
     rename( 
             psu = hv021,
-            strata = hv023,
-            region = hv024,
-            slide = hml32,
-            rdt = hml35)  %>%
+            strata = hv023
+            # ,
+#             region = hv024,
+#             slide = hml32,
+#             rdt = hml35,
+#             pf = hml32a,
+#             pm = hml32b,
+#             po = hml32c,
+#             pv = hml32d
+            )  %>%
     mutate( 
-            weight = as.numeric( hv005 )
+            weight = as.numeric( hv005 ),
+            pf = sum(pf==1),
+            notpf = sum(pm==0:1, po==0:1, pv==0:1)
             )
+  
   nrow(slide.rdt)
+ 
+# filter complete slide and rdt 
+  has.slide = sum(x$hml32 %in% 0:1) > 0
+  has.rdt = sum(x$hml35 %in% 0:1) > 0
   
-  has.data = complete.cases(slide.rdt[, c("slide", "rdt")])
-  
-  if ( sum(has.data) == 0) {
+  if ( !(has.slide && has.rdt) ){
     stop("slide and/or rdt values are all missing")
   }
   
   # remove rows with no test  
-  slide.rdt = slide.rdt[has.data,] 
-  nrow(slide.rdt)
+#   slide.rdt = slide.rdt[has.data,] 
+#   nrow(slide.rdt)
   
   
   # summarise by psu
@@ -88,40 +101,59 @@ rdt_slide_table = function(s){
 household_member_file = files %>% filter( file %in% 'Household Member Recode.rda') 
 
 d = NA # initialize variable for data.frame of results
+d.temp= NA
+# nrow(household_member_file)
+for ( i in 1:20 ){
 
-for ( i in 1:nrow(household_member_file) ){
-  s = survey_data(
-    country = household_member_file[i, "country"],
-    survey_year = household_member_file[i, "survey_year"],
-    design = FALSE
-  )
+    s = try(
+      survey_data(
+        country = household_member_file[i, "country"],
+        survey_year = household_member_file[i, "survey_year"],
+        design = TRUE)
+    )
   
+  if (sum(class(s) == "try-error")>0){ 
+    print( "s try error") 
+    next }
+    
   result = try( rdt_slide_table(s), silent = TRUE)
   
-  if ( class(result) == "try-error" ){ 
+  if ( sum(class(result) == "try-error")>0 ){ 
         print(paste( household_member_file[i, "country"], 
                      household_member_file[i, "survey_year"], ":", 
                      result[[1]])
               )
         d.temp = NA
+        
     } else {
       print(paste( household_member_file[i, "country"],
-                   household_member_file[i, "survey_year"], 
-                   "has slide and rdt data")
-            )
+                   household_member_file[i, "survey_year"]
+#                    , 
+#                    "has slide or rdt data")
+            ))
+      
+      svy_mean_rdt = svymean(~hml32, s$design, na.rm = TRUE)
       
       d.temp = result %>%
         mutate( country = household_member_file[i, "country"],
-                    survey_year = household_member_file[i, "survey_year"]
+                    survey_year = household_member_file[i, "survey_year"],
+                mean_rdt = svy_mean_rdt[1],
+                se_rdt = SE(svy_mean_rdt)[1]
     )
   }
 
   if (is.na(d)){
     d = d.temp
+    print("d is NA")
   } else {
-    if (!is.na(d.temp) ) d = rbind(d, d.temp)
+    if (!is.na(d.temp) ){
+      d = rbind(d, d.temp)
+      print( paste(nrow(d.temp), nrow(d)) )
+    } 
   }
 }
+
+View(d)
 
 save(d, file = "d.rda")
 
@@ -147,7 +179,7 @@ library(gridExtra)
 
 ```
 
-## by country
+## Average Test Positivity by Country
 
 ```{r, echo=FALSE, message= FALSE}
 
@@ -196,7 +228,7 @@ library(gridExtra)
     renderTable( `Linear Regression` )
 ```
 
-##
+## Surveys Available through DHS^[http://dhsprogram.com/data/available-datasets.cfm]
 
 ```{r, echo=FALSE, message= FALSE}
 
@@ -282,12 +314,12 @@ renderTable({ d_country  })
     
 ```
 
-## Select Country
+## Interactive Country Chart 
 
 ```{r , echo=FALSE, message= FALSE}
 # By REGION
     
-renderText( "For all countries there is some disagreement between the population rates of RDT and microcopy.  For some, there is substantial deviation. SEE: Burundi, Cote d'Ivoire, Gambia, Rwanda, and Tanzania")
+renderText( "For all countries there is some disagreement between the population rates of RDT and microcopy.  For some, there is substantial deviation. See: Cote d'Ivoire and Tanzania as examples")
 
 inputPanel(
 
@@ -359,8 +391,9 @@ inputPanel(
       
 ```
 
+# A Comparison of Test Standard Distribution 
 
-## Variation within Region
+## Cluster Standard Distribution within Region
 
 Within each Region, the percent RDT and percent slide positive are calculated for each survey cluster.  Comparing the variance of these values may indicate the relative level of accuracy and repeatability of each method.
 
@@ -431,7 +464,7 @@ renderPlot({
 # renderTable(d_psu())
 ```
 
-# Pooled Variance
+## Pooled Standard Distribution
 
 ```{r, echo=FALSE, message = FALSE, warning = FALSE, pooled_variance}
 
