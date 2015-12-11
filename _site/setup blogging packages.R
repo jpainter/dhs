@@ -8,5 +8,5 @@ devtools::install_github("brendan-r/brocks")         # My lazy wrapper funs
 library(brocks)
 new_post("My first blog post!")
 
-new_post("another blog as test")
+new_post("blogging to github not going so well")
 

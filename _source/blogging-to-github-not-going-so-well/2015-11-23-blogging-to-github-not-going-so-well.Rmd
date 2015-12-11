@@ -1,0 +1,13 @@
+---
+layout: post
+title:  "blogging to github not going so well"
+date: `r Sys.time()`
+published: true
+tags: [example1, example2]
+---
+
+Your markdown here!
+
+```{r}
+plot(1:10)
+```

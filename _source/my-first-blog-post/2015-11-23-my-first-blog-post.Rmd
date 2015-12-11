@@ -1,0 +1,13 @@
+---
+layout: post
+title:  My first Yihui based blog!
+date: 2015-12-10 16:26:18
+published: true
+tags: [example1, example2]
+---
+
+Following the advice over at [R-bloggers](http://www.r-bloggers.com/blogging-with-rmarkdown-knitr-and-jekyll/), this post inherits functions from Yihui and Brendan Rocks.  
+
+```{r}
+plot(1:10)
+```
