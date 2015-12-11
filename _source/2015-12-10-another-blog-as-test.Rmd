@@ -1,0 +1,14 @@
+---
+layout: post
+title:  another blog as test
+date: `r Sys.time()`
+published: true
+tags: [example1, example2]
+---
+
+trial and error, practice makes perfect.  bromides for the blog.
+
+
+```{r}
+plot(1:10)
+```
