@@ -1,2 +1,0 @@
-# jpainter.github.io
-blogoshpere
