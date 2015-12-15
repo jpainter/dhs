@@ -1,4 +1,5 @@
-
+# load map files and create data dictionary
+# creates "data_dictionary.rda"
 
 # run this one time to get data set
 

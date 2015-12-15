@@ -1,140 +1,147 @@
-# load survey files and document which key variables are available
+# This file replaces dhsForMAP
+# creates "d.rda"
+# makes d.rda instead of dhs_malaria.rda
+# TODO: determine which surveys have variables
 
-library(dplyr)
-library(countrycode)
-library(tidyr)
+# run this one time to get data set
 
-source("../DHS/file_list.r")  
+source("file_list.r")  
 
-source("../DHS/getSurveyValue.R")
+source("getSurveyValue.R")
 
-source("../DHS/getSurveyGIS.R")
+library(survey)
+
+  # percent forumula that respects zero
+  my.percent<- function(x) {
+    if(length(x)==1) if(x==0) return(paste0(0,"%") )
+    return(percent(x) )
+  }
+  
+# fetch each survey and keep data from those that have malaria test data
+rdt_slide_table = function(s){ 
+  # assign variable to data and to design
+  x = s$data
+  svy = s$design
+
+  # select key fields
+  slide.rdt = 
+    x %>% 
+    # select( hhid, hvidx, hv005, hv021, hv023, hv024, hml32, hml35 ) %>% 
+    rename( 
+            psu = hv021,
+            strata = hv023
+            # ,
+#             region = hv024,
+#             slide = hml32,
+#             rdt = hml35,
+#             pf = hml32a,
+#             pm = hml32b,
+#             po = hml32c,
+#             pv = hml32d
+            )  %>%
+    mutate( 
+            weight = as.numeric( hv005 ),
+            pf = sum(pf==1),
+            notpf = sum(pm==0:1, po==0:1, pv==0:1)
+            )
+  
+  nrow(slide.rdt)
+ 
+# filter complete slide and rdt 
+  has.slide = sum(x$hml32 %in% 0:1) > 0
+  has.rdt = sum(x$hml35 %in% 0:1) > 0
+  
+  if ( !(has.slide && has.rdt) ){
+    stop("slide and/or rdt values are all missing")
+  }
+  
+  # remove rows with no test  
+#   slide.rdt = slide.rdt[has.data,] 
+#   nrow(slide.rdt)
+  
+  
+  # summarise by psu
+  compare = 
+    slide.rdt %>% 
+    group_by( region, psu ) %>%
+    summarise( n = n(),
+               n_slide = sum( slide %in% 0:1 ),
+               n_rdt = sum( rdt %in% 0:1 ),
+               slide_pos  = sum(slide %in% 1),
+               rdt_pos = sum(rdt %in% 1),
+               slidepos_rdtneg = sum( ifelse( slide %in% 1 & rdt %in% 0, 1, 0) ),
+               slideneg_rdtpos = sum( ifelse( slide %in% 0 & rdt %in% 1, 1, 0) ),
+               discordant = sum(slidepos_rdtneg , slideneg_rdtpos, na.rm = TRUE)
+               ) %>%
+    mutate( `%slide` = my.percent(slide_pos / n_slide),
+            `%rdt` = my.percent( rdt_pos / n_rdt),
+            `%slidepos_rdtneg` = my.percent( slidepos_rdtneg / n),
+            `%slideneg_rdtpos` = my.percent( slideneg_rdtpos / n),
+            `%discordant` = my.percent( discordant / n )
+            ) 
+
+  return(compare)
+}
+
+# rdt_slide_table(s)
 
 # get all slide/rdts 
 household_member_file = files %>% filter( file %in% 'Household Member Recode.rda') 
-View(household_member_file)
 
-# determine which key variables are available
-dhs_variables_exist = function(gs){
-  cols = names(gs)
-  colsList = paste(cols, sep = ",", collapse = ",")
-  dhsV = 
-    data.frame( 
-            geo = grepl(quote(latitude), colsList),
-            slide = grepl(quote(hml32), colsList),
-            rdt = grepl(quote(hml35), colsList),
-            result = grepl(quote(hml33), colsList),
-            age_months = grepl(quote(hc1), colsList),
-            has_net = grepl(quote(hv227), colsList),
-            used_net = grepl(quote(hv228), colsList),
-            fever = grepl(quote(h22), colsList)
-            )  
-  return(dhsV)
-}
+d = NA # initialize variable for data.frame of results
+d.temp= NA
 
-#####
-vars = data.frame(var_name = c("geo", "slide", "rdt", "has_net", "used_net", "fever", "treatment"), 
-                  dhs_name = c("latitude", "hml32", "hml35", "hv227", "hv228", "h22", "h21"),
-                  stringsAsFactors = FALSE)
+# iterate through 1:nrow(household_member_file)
+for ( i in 1:nrow(household_member_file) ){
 
-isin = function(var = vars[7,2], survey = gs){
-  cols = names(survey)
-  has_var = var %in% cols
-  has_data = if (has_var){ (sum(survey[, var] != 0, na.rm = TRUE)) != 0 } else {NA}
-  return( c(has_var, has_data))
-}  
-
-# test isin()
-# as.data.frame( 
-#   lapply(vars[,2], isin)
-# )
-
-dhs_variables = NA # initialize variable for data.frame of results
-for ( i in 1:nrow(household_member_file)) {
-
-  s = survey_data(
-    country = household_member_file[i, "country"],
-    survey_year = household_member_file[i, "survey_year"],
-    design = FALSE
-  )
-  s = s$data
-  
-  g = survey_GIS_data(
-    country = household_member_file[i, "country"],
-    survey_year = household_member_file[i, "survey_year"]
-  )
-
-  # merge  
-  # geo file variable DHSID links with Household Member Recode variable hv001 (cluster number)
-  if ( sum(is.na(g))>0 ){ gs = s } else {
-  gs = s %>% inner_join(g, by = "hv001")
-
-  }
-  
-  result = as.data.frame( 
-    lapply(vars[1:7,2], isin)
+    s = try(
+      survey_data(
+        country = household_member_file[i, "country"],
+        survey_year = household_member_file[i, "survey_year"],
+        design = TRUE)
     )
-  names(result) = vars[,1]
-  rownames(result) = c("variable", "data")
-  r = bind_cols(result[1,], result[2,])
-  names(r) = c( paste0(vars[,1],"_variable"), paste0(vars[,1],"_data"))
-  r = r[, rev(order(names(r)))]
   
+  if (sum(class(s) == "try-error")>0){ 
+    print( "s try error") 
+    next }
+    
+  result = try( rdt_slide_table(s), silent = TRUE)
   
-  if ( class(result) %in% "try-error" ){ 
+  if ( sum(class(result) == "try-error")>0 ){ 
         print(paste( household_member_file[i, "country"], 
                      household_member_file[i, "survey_year"], ":", 
                      result[[1]])
               )
         d.temp = NA
+        
     } else {
       print(paste( household_member_file[i, "country"],
-                   household_member_file[i, "survey_year"], 
-                   "has malaria data")
-            )
+                   household_member_file[i, "survey_year"]
+#                    , 
+#                    "has slide or rdt data")
+            ))
       
-      d.temp = r %>%
-        mutate( 
-                    country = household_member_file[i, "country"],
-                    `country id` = countrycode(household_member_file[i, "country"], 
-                                               "country.name", "iso3c"),
-                    citation1 = "DHS",
-                    survey_year = household_member_file[i, "survey_year"]
-                    ) 
+      svy_mean_rdt = svymean(~hml32, s$design, na.rm = TRUE)
+      
+      d.temp = result %>%
+        mutate( country = household_member_file[i, "country"],
+                    survey_year = household_member_file[i, "survey_year"],
+                mean_rdt = svy_mean_rdt[1],
+                se_rdt = SE(svy_mean_rdt)[1]
+    )
   }
 
-  if (is.na(dhs_variables)){
-    dhs_variables = d.temp
+  if (is.na(d)){
+    d = d.temp
+    print("d is NA")
   } else {
-    if (!is.na(d.temp) ) dhs_variables = rbind(dhs_variables, d.temp)
+    if (!is.na(d.temp) ){
+      d = rbind(d, d.temp)
+      print( paste(nrow(d.temp), nrow(d)) )
+    } 
   }
 }
 
-View(dhs_variables)
+View(d)
 
-# Summarise dhs_variables
-dhs_variables %>%
-  summarise(
-            surveys = n(),
-            geo = sum(geo_variable),
-            geo_data = sum(geo_data, na.rm = TRUE),
-            slide = sum(slide_variable), 
-            slide_data = sum(slide_data, na.rm = TRUE), 
-            rdt = sum(rdt_variable),
-            rdt_data = sum(rdt_data, na.rm = TRUE),
-            has_net = sum(has_net_variable), 
-            has_net_data = sum(has_net_data, na.rm = TRUE), 
-            used_net = sum(used_net_variable), 
-            used_net_data = sum(used_net_data, na.rm = TRUE), 
-            fever = sum(fever_variable) ,
-            fever_data = sum(fever_data, na.rm = TRUE) ,
-            treatment = sum(treatment_variable),
-            treatment_data = sum(treatment_data, na.rm = TRUE)
-  ) %>% View()
-
-####
-
-save(dhs_variables, file = "../DHS/dhs_variables.rda")
-
-load("../DHS/dhs_variables.rda")
-
+save(d, file = "d.rda")
