@@ -1,0 +1,222 @@
+---
+title: "Slide vs RDT"
+output: html_document
+---
+
+# A Comparison of DHS and MIS malaria parasitemia estimates by microscopy (slides) with RDT 
+
+Interactive charts available at: https://ddarko.shinyapps.io/slideVersusRDT
+
+```{r,  echo = FALSE, eval=FALSE}
+
+# run this one time to get data set
+
+source("file_list.r")  
+
+source("getSurveyValue.R")
+
+library(survey)
+
+  # percent forumula that respects zero
+  my.percent<- function(x) {
+    if(length(x)==1) if(x==0) return(paste0(0,"%") )
+    return(percent(x) )
+  }
+  
+# fetch each survey and keep data from those that have malaria test data
+rdt_slide_table = function(s){ 
+  # assign variable to data and to design
+  x = s$data
+  svy = s$design
+
+  # select key fields
+  slide.rdt = 
+    x %>% 
+    select( hhid, hvidx, hv005, hv021, hv023, hv024, hml32, hml35 ) %>% 
+    rename( 
+            psu = hv021,
+            strata = hv023,
+            region = hv024,
+            slide = hml32,
+            rdt = hml35,
+            pf = hml32a,
+            pm = hml32b,
+            po = hml32c,
+            pv = hml32d)  %>%
+    mutate( 
+            weight = as.numeric( hv005 )
+            )
+  
+  nrow(slide.rdt)
+ 
+# filter complete slide and rdt 
+  has.slide = sum(x$hml32 %in% 0:1) > 0
+  has.rdt = sum(x$hml35 %in% 0:1) > 0
+  
+  if ( !(has.slide && has.rdt) ){
+    stop("slide and/or rdt values are all missing")
+  }
+  
+  # remove rows with no test  
+#   slide.rdt = slide.rdt[has.data,] 
+#   nrow(slide.rdt)
+  
+  
+  # summarise by psu
+  compare = 
+    slide.rdt %>% 
+    group_by( region, psu ) %>%
+    summarise( n = n(),
+               n_slide = sum( slide %in% 0:1 ),
+               n_rdt = sum( rdt %in% 0:1 ),
+               slide_pos  = sum(slide %in% 1),
+               rdt_pos = sum(rdt %in% 1),
+               slidepos_rdtneg = sum( ifelse( slide %in% 1 & rdt %in% 0, 1, 0) ),
+               slideneg_rdtpos = sum( ifelse( slide %in% 0 & rdt %in% 1, 1, 0) ),
+               discordant = sum(slidepos_rdtneg , slideneg_rdtpos, na.rm = TRUE)
+               ) %>%
+    mutate( `%slide` = my.percent(slide_pos / n_slide),
+            `%rdt` = my.percent( rdt_pos / n_rdt),
+            `%slidepos_rdtneg` = my.percent( slidepos_rdtneg / n),
+            `%slideneg_rdtpos` = my.percent( slideneg_rdtpos / n),
+            `%discordant` = my.percent( discordant / n )
+            ) 
+
+  return(compare)
+}
+
+# rdt_slide_table(s)
+
+# get all slide/rdts 
+household_member_file = files %>% filter( file %in% 'Household Member Recode.rda') 
+
+d = NA # initialize variable for data.frame of results
+d.temp= NA
+
+for ( i in 1:nrow(household_member_file) ){
+
+    s = try(
+      survey_data(
+        country = household_member_file[i, "country"],
+        survey_year = household_member_file[i, "survey_year"],
+        design = TRUE)
+    )
+  
+  if (sum(class(s) == "try-error")>0){ 
+    print( "s try error") 
+    next }
+    
+  result = try( rdt_slide_table(s), silent = TRUE)
+  
+  if ( sum(class(result) == "try-error")>0 ){ 
+        print(paste( household_member_file[i, "country"], 
+                     household_member_file[i, "survey_year"], ":", 
+                     result[[1]])
+              )
+        d.temp = NA
+        
+    } else {
+      print(paste( household_member_file[i, "country"],
+                   household_member_file[i, "survey_year"]
+#                    , 
+#                    "has slide or rdt data")
+            ))
+      
+      svy_mean_rdt = svymean(~hml32, s$design, na.rm = TRUE)
+      
+      d.temp = result %>%
+        mutate( country = household_member_file[i, "country"],
+                    survey_year = household_member_file[i, "survey_year"],
+                mean_rdt = svy_mean_rdt[1],
+                se_rdt = SE(svy_mean_rdt)[1]
+    )
+  }
+
+  if (is.na(d)){
+    d = d.temp
+    print("d is NA")
+  } else {
+    if (!is.na(d.temp) ){
+      d = rbind(d, d.temp)
+      print( paste(nrow(d.temp), nrow(d)) )
+    } 
+  }
+}
+
+View(d)
+
+save(d, file = "d.rda")
+
+```
+
+```{r, echo= FALSE, include= FALSE}
+
+load("d.rda")
+source("getSurveyValue.R")
+
+country <- as.vector(unique(d$country))
+
+# paste( 'There are ', length(unique( d$country)) ,'countries with slide and rdt data')
+# paste( 'There are ', length(unique( c(d$country, d$survey_year)))  ,'surveys with slide and rdt data')
+
+library(DT)  
+require(dplyr)
+require(tidyr)
+library(ggvis)
+library(ggplot2)
+library(gridExtra)
+
+
+```
+
+## Average Test Positivity by Country
+
+```{r, echo=FALSE, message= FALSE, warning=FALSE}
+
+  d_country = 
+  d %>% 
+  group_by(country, survey_year) %>%
+  summarise(
+    n = sum(n),
+    n_rdt = sum(n_rdt),
+    n_slide = sum(n_slide),
+    rdt = 100 * sum(rdt_pos) / n_rdt ,
+    slide = 100* sum(slide_pos) / n_slide ) %>%
+  as.data.frame() 
+
+    # add id field
+    d_country$id = 1:nrow(d_country)
+#     
+    survey_label_country <- function(x) {
+      if(is.null(x)) return(NULL)
+      paste( d_country[x$id, "country"], d_country[x$id, "survey_year"])
+    }
+#     
+    reference_line = data.frame( x= c(0,85), y = c(0,85))
+    
+    d_country %>%
+      ggvis(~slide, ~rdt) %>%
+      layer_model_predictions( model = "lm", se = TRUE) %>%
+      layer_points( fill = ~country, key := ~id) %>%
+      add_tooltip( survey_label_country, "hover") %>%
+      add_axis("x", title = "Slide % Positive") %>%
+      add_axis("y", title = "RDT % Positive") %>%
+      scale_numeric("x", domain = c(0, 85)) %>%
+      scale_numeric("y", domain = c(0, 85)) %>%
+      layer_paths( data = reference_line, x = ~x, y= ~y)
+#
+ 
+# regression
+    linear = lm( rdt ~ slide, data = d_country)
+    # summary(linear)
+    `Linear Regression` = as.data.frame(cbind(round(linear$coefficients, 2),
+                                              confint(linear))
+                                        )
+    names(`Linear Regression`) = c("Estimate", "LL", "UL")
+    rownames(`Linear Regression`) = c("Intercept", "Slope")
+
+    kable( `Linear Regression` )
+    
+    kable(d_country)
+```
+

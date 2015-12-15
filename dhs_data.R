@@ -1,3 +1,5 @@
+# load survey files and document which key variables are available
+
 library(dplyr)
 library(countrycode)
 library(tidyr)

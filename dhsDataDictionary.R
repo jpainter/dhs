@@ -59,7 +59,7 @@ View(data_dictionary)
 
 save(data_dictionary, file = "data_dictionary.rda")
 
-# create meata data of number of vaariables in each file
+# create meta data of number of vaariables in each file
 data_dictionary_metadata = data_dictionary %>% count(country, survey_year, file)
 
 View(data_dictionary_metadata)

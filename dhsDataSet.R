@@ -1,4 +1,6 @@
-
+# This file replaces dhsForMAP
+# makes d.rda instead of dhs_malaria.rda
+# TODO: determine which surveys have variables
 
 # run this one time to get data set
 
