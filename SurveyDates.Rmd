@@ -1,0 +1,104 @@
+---
+title: "DHS-MIS Surveys"
+author: "jp"
+date: "January 22, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = "")
+```
+
+
+
+```{r dhs_data}
+library(dplyr)
+
+# run this one time to get data set
+
+# get list of surveys and filer ####
+source("file_list.r")  
+# nrow(files)
+
+# clean up country names
+library(countrycode)
+# filter to surveys after 1999
+
+f = files %>% 
+  filter( !is.na( countrycode(country, "country.name", "country.name") )) %>%
+  filter( grepl( paste(2000:2015, collapse="|"), year) ) %>%
+  mutate( year = sapply(survey_year, 
+                        FUN = function(x) tail(unlist(strsplit(x, " ", fixed = TRUE)), 1) ) ,
+          
+          type = sapply(survey_year, 
+                        FUN = function(x) tail(
+                          head(unlist(strsplit(x, " ", fixed = TRUE)), 
+                                               length(unlist(strsplit(x, " ", fixed = TRUE))) - 1 ), 1
+                          ) )
+          ) 
+
+f %>% count(country, survey_year) # 119 surveys
+f %>% count(country) # 43 countries
+
+
+
+# PMI 
+pmi = c( "Angola", "Benin", "DRC", 
+         "Ethiopia", "Ghana", "Guinea", "Kenya", "Liberia", "Madagascar", "Malawi", "Mali", "Mozambique", 
+         "Nigeria", "Rwanda", "Senegal", "Tanzania", "Uganda", "Zambia", "Zimbabwe" )
+
+pmi_iso3 = countrycode(pmi, "country.name", "iso3c")
+
+last_survey = f %>% group_by(country) %>%
+  arrange( desc(year) ) %>%
+  filter(row_number()==1) %>%
+  mutate( 
+    iso3 = countrycode(country, "country.name", "iso3c"), 
+    pmi = iso3  %in% pmi_iso3  ,
+          `last survey year` = ifelse( year %in% 2012:2014, "2012-2014",
+                                       ifelse(year %in% 2008:2011, "2008-2011",
+                                              ifelse( !is.na(year), "<2008", NA)
+                                              ) )
+          ) %>%
+  filter(pmi == TRUE)
+
+
+```
+
+# Chart of most recent survey data
+```{r }
+
+load("../malaria_atlas/africa_grid.rda")
+
+africa_grid = africa_grid %>% mutate(iso3 = countrycode(country, "country.name", "iso3c") )
+
+last_survey_hex = last_survey %>%
+  right_join( africa_grid, by = 'iso3' )
+
+library(ggplot2)
+ ggplot( data = last_survey_hex) +
+   geom_polygon(aes(x, y, group = id, fill = `last survey year`, color =  type), size = 1) +
+   scale_color_brewer(type = "qual", palette = 4) +
+   coord_fixed(ratio = 1) +
+   geom_text(data = africa_grid_labels, aes(label = as.character(id), x= x, y = y), size = 3)
+
+ 
+```
+
+# Chart upcoming surveys 
+```{r }
+
+
+
+last_survey_hex = last_survey %>%
+  right_join( africa_grid, by = 'iso3' )
+
+library(ggplot2)
+ ggplot( data = last_survey_hex) +
+   geom_polygon(aes(x, y, group = id, fill = `last survey year`, color = pmi), size = 1) +
+   scale_color_manual( values = c("grey", "red"), guide = FALSE) +
+   coord_fixed(ratio = 1) +
+   geom_text(data = africa_grid_labels, aes(label = as.character(id), x= x, y = y), size = 3)
+
+ 
+```
