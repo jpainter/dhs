@@ -7,7 +7,7 @@ library(dplyr)
 
 # run this one time to get data set
 
-# get list of surveys and filer ####
+# get list of surveys and files ####
 source("file_list.r")  
 nrow(files)
 
@@ -53,19 +53,17 @@ library(ggplot2)
    coord_fixed(ratio = 1) +
    geom_text(data = africa_grid_labels, aes(label = as.character(id), x= x, y = y), size = 3)
 
-# open survey and merge files ####
+# Variable list ####
 
-# file:   Indexes:
-# childrens       v001, v002, v003 (for womens), b16 (for hh member)
-# TO 
-# individual (womens)   v001, v002, v003 (childrens v003)
-# TO
-# household member    hv001, hv002, hvidx (childrens b16)
-# TO
-# household        hv001, hv002
+  # file:   Indexes:
+  # childrens       v001, v002, v003 (for womens), b16 (for hh member)
+  # TO 
+  # individual (womens)   v001, v002, v003 (childrens v003)
+  # TO
+  # household member    hv001, hv002, hvidx (childrens b16)
+  # TO
+  # household        hv001, hv002
 
-   ## list surveys and variables available with data ####
-  
   # from loading and merging DHS (D. Vanderelst, N. Speybroeck, 2014)
   # Matching variables
   # V001 Cluster number Children data set
@@ -104,14 +102,13 @@ library(ggplot2)
            "hml32a", "hml32b", "hml32c", "hml32d",
            "hv227", "hv228", "hml1", "hml2", "hml12", "v461", "v459", "hml7")
  
- # initialize data.frame to hold inventory of variables in each survey
+
+# initialize data.frames to hold inventory of variables in each survey ####
  survey_hmch_vars = cbind( data.frame(country = character(), survey_year = character(), stringsAsFactors = FALSE),
                                       as.data.frame(lapply( vars, FUN = function(x) logical()))
  )
  names(survey_hmch_vars)[3:(length(vars)+2)] = vars
  
-source("openSurveyFile.R")
-
  # Create DF for summary
 survey_summary = data.frame(
   country = character(),  
@@ -128,6 +125,8 @@ c = NA; w = NA; h = NA; hm = NA; hmc = NA; hmch = NA
 # i = 24 # DRC 2007
 # i = 46 # liberia
 
+# iterate through survey files to create a merged file for each survey ####
+source("openSurveyFile.R") 
 for (i in 1:nrow(f)){ 
 .country = f[i, "country"]
 .survey_year = f[i, "survey_year"]
@@ -179,7 +178,7 @@ for (i in 1:nrow(f)){
   if ( !class(hm) == "try-error" & !class(c) == "try-error"  & 
        sapply( "b16", function(x) any(grepl(paste0("\\b", x, "\\b"), names(c))) ) == TRUE){
   hmc = hm[, names(vars_hm[vars_hm == TRUE]) ] %>%
-    inner_join( c[, c(c_vars_not_in_hm, "v001", "v002", "v003") ],
+    inner_join( c[, c(c_vars_not_in_hm, "v001", "v002") ],
                          by = c("hv001"="v001", "hv002"="v002",  "hvidx" = "b16") )
   
   
@@ -188,12 +187,13 @@ for (i in 1:nrow(f)){
   vars_hmc = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(hmc))) )
   
   ## merged file with household (if needed)
-  hmc_vars_not_in_h = setdiff( names(vars_h[vars_h == TRUE]), names(vars_hmc[vars_hmc == TRUE] ) )
+  hmc_vars_not_in_h = setdiff( names(vars_hmc[vars_hmc == TRUE]), names(vars_h[vars_h == TRUE]) )
+  h_vars_not_in_hmc = setdiff(names(vars_h[vars_h == TRUE]), names(vars_hmc[vars_hmc == TRUE]) )
   
   #Are there any variable to add?
     if(!class(h) == "try-error") {
   
-      hmch = hmc %>% left_join(h, by=c("hv001"="hv001", "hv002"="hv002")) 
+      hmch = hmc %>% left_join(h[, c(h_vars_not_in_hmc, "hv001", "hv002")], by=c("hv001"="hv001", "hv002"="hv002")) 
   
       paste( "the merged childrens-houshold member-household file has", nrow(hmch), "rows and ", ncol(hmch), "columns")
       vars_hmch = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(hmch))) )
@@ -231,11 +231,11 @@ for (i in 1:nrow(f)){
     
 }
 
-# summary results ####
-survey_summary
-save(survey_summary, file = "survey_summary.rda")
+# save summary results ####
+save(survey_summary, survey_hmch_vars, file = "survey_summaries.rda")
+load("survey_summaries.rda")
 
-load("survey_summary.rda")
+# view summary results ####
 library(tidyr)
 ss = survey_summary %>% select(-ncol) %>% spread( file, nrow) %>% 
   mutate( `hmc:c` = hmc/c) %>%
@@ -253,20 +253,6 @@ survey_hmch_vars %>% select(country, survey_year, hml32, hml35) %>%
   group_by(country) %>% mutate(n = n()) %>% filter(n>1) %>%
   View()
 
-
-
-
-
-
-
-
-
-
-
-table(x$hv025, useNA = 'always')
-
-# memory cleanup
-rm(c, w, h ); gc()
 
 # calculate weighted and survey values #### 
 library(survey)
@@ -290,7 +276,7 @@ if (has.strata.025) {
             svydesign( 
               ~hv021 + hv002 , # see Vanderelst/Speybroeck (this is different from Damico)
               strata = strataformula , 
-              data = x , 
+              data = hmch , 
               weights = ~weight
             )
     
