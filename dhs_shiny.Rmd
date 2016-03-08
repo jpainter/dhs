@@ -1,0 +1,380 @@
+---
+title: "Survey Results"
+output: html_document
+runtime: shiny
+---
+
+```{r packages, echo=FALSE, include=FALSE}
+library(knitr)
+opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+library(DT)
+   
+library(survey)  
+options(survey.lonely.psu="adjust")
+
+library(ggplot2)
+library(scales)
+library(grid)
+library(lubridate)
+library(dplyr)
+
+
+# base map
+library(sp)
+library(rworldmap) # this pkg has waaaay better world shapefiles
+library(ggthemes)
+library(ggmap); library(BH)
+
+library(countrycode)
+
+
+```
+
+
+```{r surveys}
+# get list of surveys and files ####
+source("file_list.r")
+# save(f, file = "f.rda")
+# load("f.rda")
+
+# nrow(files)
+
+f = files %>%
+  filter( !is.na( countrycode(country, "country.name", "country.name") )) %>%
+  filter( grepl( paste(2000:2020, collapse="|"), year) ) %>%
+  mutate( year = sapply(survey_year,
+                        FUN = function(x) tail(unlist(strsplit(x, " ", fixed = TRUE)), 1) )
+          ) %>%
+  count(country, survey_year, year)
+
+# f %>% count(country, survey_year) # 119 surveys
+# f %>% count(country) # 43 countries
+
+# Chart of most recent survey ####
+load("../malaria_atlas/africa_grid.rda")
+#
+# # PMI
+pmi = c( "Angola", "Benin", "DRC",
+         "Ethiopia", "Ghana", "Guinea", "Kenya", "Liberia", "Madagascar", "Malawi", "Mali", "Mozambique",
+         "Nigeria", "Rwanda", "Senegal", "Tanzania", "Uganda", "Zambia", "Zimbabwe" )
+
+pmi_iso3 = countrycode(pmi, "country.name", "iso3c")
+#
+last_survey = f %>% 
+  mutate( iso3c= countrycode(country, "country.name", "iso3c") ) %>%
+  group_by(iso3c) %>%
+  summarise(year = max(year)) %>%
+  right_join( africa_grid , by = "iso3c") %>% # hexbin map
+  mutate( pmi = iso3c %in% pmi_iso3, 
+          `last survey year` = ifelse( grepl( "2012|2013|2014|2015", year),
+                                       "2012-2015",
+                                       ifelse( grepl("2008|2009|2010|2011", year),
+                                               "2008-2011",
+                                              ifelse( !is.na(year), "<2008", NA)
+                                              ) )
+          ) 
+
+
+
+                                       
+```
+
+
+```{r ui}
+
+countries = f %>% count(country) %>% select(country) %>%
+      unlist() %>% unname()
+
+shinyUI( 
+   fluidPage(
+      # sidebarLayout(
+      # sidebarPanel(
+            inputPanel(
+              
+  selectInput("Country", label = "Country:", choices = countries,
+                    selected = "Angola"),
+
+  selectInput("survey", label = "Survey", choices = c("")),
+
+textOutput("text1"))
+# )
+,
+
+   # mainPanel( 
+      tabsetPanel( 
+         
+         tabPanel("Map", plotOutput(outputId = "main_plot",  width = "100%") ),
+         tabPanel("Parasitemia", 
+                  verbatimTextOutput("parasitemia"),
+                  verbatimTextOutput("parasitemia.urban"),
+                  verbatimTextOutput("parasitemia_by_age"),
+                  plotOutput("parasitemia_by_age_plot")
+                  ),
+         tabPanel("Net Ownership", 
+                  verbatimTextOutput("own_net"),
+                  verbatimTextOutput("own_net_by_urbanRural")
+         ),
+         tabPanel("Net Usage", 
+                  verbatimTextOutput("anynet"),
+                  verbatimTextOutput("anynet.urban"),
+                  verbatimTextOutput("anynet_by_age"),
+                  verbatimTextOutput("itn"),
+                  # print("slept under ITN^[includes persons
+                  #       who respond sleep under 'Both treated and untreated bednets']
+                  #       by age group"),
+                  verbatimTextOutput("itn_by_age")
+         ),
+         tabPanel("Mortality", verbatimTextOutput("mortality") ),
+         tabPanel("Respondents", verbatimTextOutput("respondents") ),
+         tabPanel("Data Structure", verbatimTextOutput("structure") ),
+         tabPanel("Data Dictionary", DT::dataTableOutput("dictionary"), width = "100%" ),
+         style='width: 100%; height: 100%'
+      )
+      
+      # )
+# )
+))
+
+# hexbin map of survey 'era'
+output$main_plot =  
+renderPlot({
+ ggplot( data = last_survey) +
+   geom_polygon(aes(x, y, group = id, fill = `last survey year`, alpha = pmi), size = 1) +
+   scale_fill_manual( values = c("red", "orange", "yellow", "grey10")) +
+    scale_alpha_manual( values = c(.5, 1)) +
+   coord_fixed(ratio = 1) +
+   geom_text(data = africa_grid_labels, aes(label = as.character(id), x= x, y = y), size = 3) +
+    theme(line = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_rect(colour = "blue", fill = "grey50")
+        )
+})
+
+
+```
+
+```{r survey_year_update}
+observe({
+
+      surveys = f %>%
+      filter( country %in% input$Country) 
+      
+      surveys = surveys[rev(order(surveys$year)),]
+
+      
+      updateSelectInput(session, "survey",
+                               choices = surveys$survey_year,
+                               selected = surveys$survey_year[1]
+                               )
+})
+```
+
+
+```{r get_survey_functions}
+
+source( "dhs_load_survey.R" )
+```
+
+```{r svy} 
+svy = reactive({
+  
+  if (is.null(input$Country) | is.null(input$survey)) {
+    return(NULL)
+  }    
+  
+.country = input$Country
+.survey_year = input$survey
+
+load_survey_object( .country = input$Country,
+             .survey_year = input$survey ,
+             geo = FALSE
+             )
+})
+
+svy.h = reactive({  svy()[[1]] })
+svy.c = reactive({  svy()[[2]] })
+
+# observe({
+#   .country = input$Country
+#   .survey_year = input$survey
+#   
+#   svy. = load_survey_object( .country = input$Country,
+#                .survey_year = input$survey ,
+#                geo = FALSE
+#                )
+# 
+#   svy.h = svy.[[1]]
+#   svy.c = svy.[[2]]
+# })
+
+```
+
+
+```{r structure}
+
+
+output$structure =  renderPrint({
+  df = data.frame(Data = svy()[[3]], 
+                row.names = names(svy()[[3]]))  
+  # df = df[order(row.names(df)),]
+  df
+  })
+
+```
+
+```{r dictionary}
+load('data_dictionary.rda')
+
+output$dictionary  = DT::renderDataTable({
+  if ( is.null( svy()) ){ return()}
+  
+  dictionary = data_dictionary %>% filter(country == input$Country, 
+                                          survey_year == input$survey)
+                
+  DT::datatable(dictionary, 
+                options = list(orderClasses = TRUE, pageLength = 20))
+  })
+
+```
+
+```{r respondents}
+
+  svy.one = reactive({
+  
+    if ( is.null( svy()) ){ return()}
+
+    svytotal( ~one , svy.h() )
+  })
+
+  output$respondents =  renderPrint({ 
+    if ( is.null( svy()) ){ return() }
+    svy.one()  
+  })
+
+```
+
+
+```{r parasitemia}
+
+
+svby_hml32. = reactive({
+    svymean( ~ hml32 , svy.h() , na.rm = TRUE  )
+})
+
+output$parasitemia =  renderPrint({ 
+  if ( is.null( svy()) ){ return() }
+  svby_hml32.()  
+  })
+
+```
+
+```{r parasitemia.urban}
+
+
+svby_hml32.urban = reactive({
+    svyby( ~ hml32 ,  ~v025, svy.h() , svymean ,  na.rm = TRUE  )
+})
+
+output$parasitemia.urban =  renderPrint({ svby_hml32.urban()  })
+
+```
+
+```{r parasitemia_by_age}
+
+
+svby_hml32_by_age = reactive({
+  
+  if ( is.null( svy.h()) ){ return()}
+  
+    svy_obj = svyby( ~ hml32 , ~ hv105.grp.c, svy.h(), svymean, na.rm = TRUE )
+    return(svy_obj)
+}) 
+
+output$parasitemia_by_age =  renderPrint({ svby_hml32_by_age()  })
+
+output$parasitemia_by_age_plot = renderPlot( plot(svby_hml32_by_age(),
+                                                  main = "Parsitemia by Age Group")
+                                             )
+```
+
+
+```{r ownnet}
+svby_hml1.own = reactive({
+  # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
+  svymean( ~ hml1.own , svy()[[1]] , na.rm = TRUE  )
+  # svyby( ~ hml12.anynet ,  ~ one, svy()[[1]] , svymean ,  na.rm = TRUE  )
+})
+
+output$own_net =  renderPrint({ svby_hml1.own() })
+```
+
+```{r own_net_by_urbanRural}
+svby_hml1.own_net_by_urbanRural = reactive({
+  # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
+  svyby( ~ hml1.own ,  ~v025, svy()[[1]] , svymean ,  na.rm = TRUE  )
+})
+
+output$own_net_by_urbanRural =  renderPrint({ svby_hml1.own_net_by_urbanRural()  })
+```
+
+```{r anynet}
+svby_hml12.anynet = reactive({
+  # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
+  svymean( ~ hml12.anynet , svy()[[1]] , na.rm = TRUE  )
+  # svyby( ~ hml12.anynet ,  ~ one, svy()[[1]] , svymean ,  na.rm = TRUE  )
+})
+
+output$anynet =  renderPrint({ svby_hml12.anynet() })
+```
+
+```{r anynet_by_urbanRural}
+svby_hml12.anynet.urban = reactive({
+  # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
+  svyby( ~ hml12.anynet ,  ~v025, svy()[[1]] , svymean ,  na.rm = TRUE  )
+})
+
+output$anynet.urban =  renderPrint({ svby_hml12.anynet.urban()  })
+```
+
+```{r anynet_by_age}
+svby_hml12.anynet_by_age = reactive({
+  # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
+  svyby( ~ hml12.anynet ,  ~hv105.grp, svy()[[1]] , svymean ,  na.rm = TRUE  )
+})
+
+output$anynet_by_age =  renderPrint({ svby_hml12.anynet_by_age()  })
+```
+
+```{r itn}
+svby_hml12.itn = reactive({
+  # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
+  confint(svymean( ~ hml12.itn ,  svy()[[1]] ,  na.rm = TRUE  ))
+})
+
+output$itn =  renderPrint({ svby_hml12.itn()  })
+```
+
+```{r itn_by_age}
+svby_hml12.itn_by_age = reactive({
+  # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
+  svyby( ~ hml12.itn ,  ~hv105.grp, svy()[[1]] , svymean ,  na.rm = TRUE  )
+})
+
+output$itn_by_age =  renderPrint({ svby_hml12.itn_by_age()  })
+```
+
+
+```{r mort }
+svby_b5 = reactive({
+  
+  if ( is.null( svy()) ){ return()}
+  
+    svyby( ~ b5 ,  ~v025, svy.c() , svymean ,  na.rm = TRUE  )
+})
+
+output$mortality =  renderPrint({ svby_b5()  })
+
+```
+
