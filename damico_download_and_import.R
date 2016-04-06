@@ -106,8 +106,8 @@ projects.page <- "https://dhsprogram.com/data/dataset_admin/"
 countries.page <- "https://dhsprogram.com/data/dataset_admin/download-datasets.cfm"
 
 # create a temporary file and temporary directory
-tf <- tempfile() ; td <- tempdir()
-
+#  TODO: this only seems to work correctly on windows platform
+tf <- tempfile() ; td <- tempdir() 
 
 # set the username and password
 values <- 

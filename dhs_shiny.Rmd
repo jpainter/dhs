@@ -104,7 +104,6 @@ textOutput("text1"))
    # mainPanel( 
       tabsetPanel( 
          
-         tabPanel("Map", plotOutput(outputId = "main_plot",  width = "100%") ),
          tabPanel("Parasitemia", 
                   verbatimTextOutput("parasitemia"),
                   verbatimTextOutput("parasitemia.urban"),
@@ -119,6 +118,7 @@ textOutput("text1"))
                   verbatimTextOutput("anynet"),
                   verbatimTextOutput("anynet.urban"),
                   verbatimTextOutput("anynet_by_age"),
+                  plotOutput("anynet_by_region"),
                   verbatimTextOutput("itn"),
                   # print("slept under ITN^[includes persons
                   #       who respond sleep under 'Both treated and untreated bednets']
@@ -129,6 +129,7 @@ textOutput("text1"))
          tabPanel("Respondents", verbatimTextOutput("respondents") ),
          tabPanel("Data Structure", verbatimTextOutput("structure") ),
          tabPanel("Data Dictionary", DT::dataTableOutput("dictionary"), width = "100%" ),
+         tabPanel("Map of Survey Dates", plotOutput(outputId = "main_plot",  width = "100%") ), 
          style='width: 100%; height: 100%'
       )
       
@@ -184,8 +185,8 @@ svy = reactive({
     return(NULL)
   }    
   
-.country = input$Country
-.survey_year = input$survey
+# .country = input$Country
+# .survey_year = input$survey
 
 load_survey_object( .country = input$Country,
              .survey_year = input$survey ,
@@ -345,6 +346,15 @@ svby_hml12.anynet_by_age = reactive({
 })
 
 output$anynet_by_age =  renderPrint({ svby_hml12.anynet_by_age()  })
+```
+
+```{r anynet_by_region}
+svby_hml12.anynet_by_region = reactive({
+  # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
+  svyboxplot( hml12.anynet~hv024, svy()[[1]] , ylab = "Slept Under a Net" , xlab= 'Region' , na.rm = TRUE)
+})
+
+output$anynet_by_region =  renderPlot({ svby_hml12.anynet_by_region()  })
 ```
 
 ```{r itn}
