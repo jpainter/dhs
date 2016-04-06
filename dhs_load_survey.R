@@ -22,9 +22,11 @@ openSurveyFile = function(
   tab = NA
   )
   {
+  
   file = paste0(
                 ifelse( country %in% "DRC", "Congo Democratic Republic", country),
                 "/", survey_year, "/", tab, ".rda")
+  
   if ( !file.exists( file ) ) return(NA)
 
   load( file ) # file will be loaded as 'x'
@@ -48,6 +50,11 @@ load_survey_object = function( .country = "Angola",
   c = try(
     openSurveyFile(country = .country, survey_year = .survey_year, 
                    tab = "Children's Recode")
+  )
+  
+  s = try(
+    openSurveyFile(country = .country, survey_year = .survey_year,
+                   tab = "Supplemental Births Recode")
   )
   
   
@@ -190,9 +197,10 @@ load_survey_object = function( .country = "Angola",
         
  if (printout){
       paste( "the completed merged file has", nrow(x), "rows and ", ncol(x), "columns")
+   
   }
   
-  vars_x = sapply( names(x), function(x) any(grepl(paste0("\\b", x, "\\b"), x)) )
+  
           
 #### alternative
 # test if strata exists; some surveys have no strata (e.g. madagascar mis 2011)
@@ -248,13 +256,16 @@ if (has.strata.022) { # urban/rural
   
   # childrens...
   x.c = x %>% filter(weight.c > 0)
-        svy.c <- 
+  svy.c <- 
             svydesign( 
               ~v021  , # psu 
               strata = strataformula.c , 
               data =  x.c , 
               weights = ~ weight.c
             )   
+  
+  vars_x = sapply( names(x), function(x) any(grepl(paste0("\\b", x, "\\b"), x)) )
+  
   if (dataset){
     return( list(svy.h, svy.c, vars_x, x))
   }  else {

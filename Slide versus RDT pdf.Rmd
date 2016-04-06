@@ -1,6 +1,7 @@
 ---
 title: "Slide vs RDT"
 output: html_document
+always_allow_html: yes
 ---
 
 # A Comparison of DHS and MIS malaria parasitemia estimates by microscopy (slides) with RDT 

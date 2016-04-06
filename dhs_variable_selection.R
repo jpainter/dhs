@@ -12,7 +12,9 @@ vars = function(){
            "hv005", "v005", # weight
            "hv025", "v025", #urban (1), rural(2)
            "hv026", # type of town: large city(0), small city(1), town(2), country(3), missing (9)
-           "hv006", "hv007", # month, year of interview
+           "hv006", "hv007", # month, year of interview,
+           "hv008", # interview date (CMC)
+           "v008", # interview date (CMC)
            "b16", # mothers id/line number
            "v001", "v002", "v003", # cluster, household, woman
            "hv001", "hv002", "hv003", "midx", "hvidx", "hv111",
@@ -29,10 +31,12 @@ vars = function(){
            "hv105" , # household member age
            "hml16", # years of child according to household/mom (e.g. corrected)
            "hml16a", # months of child according to household/mom (e.g. corrected)
-           "hc1", "hw1", # age in months
+           "hc1", 
+           "hw1", # age in months
            
            
-           "b5", "b6", "b7", "b8", # living?, age at death,  age at death (imputed), current age
+           "b5", "b6", "b7", "b8", # living?, age at death,  age at death (imputed), current age(yrs)
+           "hw1", # childs age in months
            "v190", #  wealth index
            
            
@@ -60,7 +64,13 @@ vars = function(){
            "hml12", # type of net slept under (recode to get slept under)
            "hv227",  "hml20", # has net for sleeping, slept under llin,
            "hv228", # child slept under net no(0), all(1), some(2), no net(3), missing(9)
-           "ml0", "ml1", "ml2", "ml11", # from child file: child's type of net, fansidar during preg, has fever/cough, source of anitmal
+           "ml0", # childs type of net
+           
+           # MIP
+           "ml1", "ml2", "ml11", # fansidar during preg, has fever/cough, source of anitmal
+           "m491" , # took fansidar
+           "s307a", # took fansidar (burkina)
+           "s309", # number of times took fansidar (burkina)
            
            "v461", "v459", "hml7",
            
