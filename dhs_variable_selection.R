@@ -7,6 +7,7 @@
 
 vars = function(){
   vars = c(
+            "v000", "hv000", # country code and phase
            "hv021", "v021", # psu
            "hv023", "v023", # strata
            "hv005", "v005", # weight
@@ -65,6 +66,9 @@ vars = function(){
            "hv227",  "hml20", # has net for sleeping, slept under llin,
            "hv228", # child slept under net no(0), all(1), some(2), no net(3), missing(9)
            "ml0", # childs type of net
+           "v459", # Have mosquito bed net for sleeping (from househ
+           "v460", # Children under 5 slept under bednet last night
+           "sh133b", # holes in net
            
            # MIP
            "ml1", "ml2", "ml11", # fansidar during preg, has fever/cough, source of anitmal

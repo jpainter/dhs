@@ -41,9 +41,10 @@ last_survey = f %>% group_by(country) %>%
   summarise(year = max(year)) %>%
   right_join( africa_grid) %>% 
   mutate( pmi = id %in% pmi_iso3,
-          `last survey year` = ifelse( year %in% 2012:2015, "2012-2015",
-                                       ifelse(year %in% 2008:2011, "2008-2011",
-                                              ifelse( !is.na(year), "<2008", NA)
+          yr = sapply( year, function(x){ head(unlist(strsplit(x, "-")), 1 )} ),
+          `last survey year` = ifelse( yr %in% 2012:2015, "2012-2015",
+                                       ifelse(yr %in% 2008:2011, "2008-2011",
+                                              ifelse( !is.na(yr), "<2008", NA)
                                               ) )
           )
 
@@ -185,6 +186,9 @@ c = NA; w = NA; h = NA; hm = NA; hmc = NA; hmch = NA
 # iterate through survey files to create a merged file for each survey 
 
 for (i in 1:nrow(f)){ 
+  
+  # TODO: if survey summary already exists, skip
+  
   
   # i = 24 # DRC 2007
   # i = 46 # liberia
@@ -361,6 +365,7 @@ save(survey_size, survey_vars, dhs_clusters, file = "survey_summaries.rda")
 
 load("survey_summaries.rda")
 Sys.time()
+
 
 # view summary results ####
 

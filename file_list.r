@@ -43,7 +43,7 @@ files = files %>%
         year = sapply( strsplit(survey_year, " ", fixed = TRUE), function(x) tail(x, 1))
   )
 
-nrow(files)
+# nrow(files)
 
 # View(files)
 

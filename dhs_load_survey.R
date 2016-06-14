@@ -10,8 +10,6 @@ library(grid)
 library(lubridate)
 library(dplyr)
 
-source("dhs_variable_selection.R")
-vars = vars()
 
 # functions for loading data files ####
 source( "getSurveyGIS.R")
@@ -44,7 +42,7 @@ load_survey_object = function( .country = "Angola",
   
   if (is.na(vars)){ 
     source("dhs_variable_selection.R")
-    vars = vars()
+    vars = c( vars(), c('c', 'hm', 'w', 'h') )
     }
   
   c = try(
@@ -75,6 +73,14 @@ load_survey_object = function( .country = "Angola",
                    tab = "Household Recode")
   )
   
+  if ( class(h) == "try-error" | class(h) == "logical" ){
+    h = try(
+      openSurveyFile(country = .country, survey_year = .survey_year, 
+                   tab = "Supplemental Household Recode")
+    )
+  }
+  
+  
   if (geo){
   g = try(
     survey_GIS_data( country = .country, survey_year = .survey_year)
@@ -89,6 +95,11 @@ load_survey_object = function( .country = "Angola",
     paste( "the GIS file has", nrow(g), "rows and ", ncol(g), "columns")
   } 
   
+  c = c %>% mutate( c = 1 )
+  w = w %>% mutate( w = 1 )
+  hm = hm %>% mutate( hm = 1 )
+
+  
   vars_c = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(c))) ) 
   vars_w = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(w))) ) 
   vars_hm = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(hm))) ) 
@@ -97,6 +108,7 @@ load_survey_object = function( .country = "Angola",
  
   # merge 1.:
   ## household member with children, excluding variables already in hm
+
   if ( !class(c) == "try-error" && !is.na(c) &&
        sapply( "b16", function(x) any(grepl(paste0("\\b", x, "\\b"), names(c))) ) == TRUE)
     {
@@ -113,7 +125,7 @@ load_survey_object = function( .country = "Angola",
   if (printout){  
     paste( "the merged childrens-womens file has", nrow(hmc), "rows and ", ncol(hmc), "columns")
   }
-  
+    
   vars_hmc = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(hmc))) )  
    
   # merge 2.:
@@ -124,6 +136,7 @@ load_survey_object = function( .country = "Angola",
 
     # rename womens weight variable
     w = w %>% rename(v005w = v005)
+    
     vars_w = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(w))) ) 
     w_vars_not_in_hmc = setdiff( names(vars_w[vars_w == TRUE]), 
                                  names(vars_hmc[vars_hmc == TRUE] ) )
@@ -147,8 +160,12 @@ load_survey_object = function( .country = "Angola",
   #Are there any variable to add?
     if ( !class(h) == "try-error" && !is.na(h) )
       { 
+      
+        h = h %>% mutate( h = 1 )
+        
         # rename household weight variable
         h = h %>% rename(hv005h = hv005)
+        
         vars_h = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(h))) ) 
         h_vars_not_in_hmcw = setdiff(names(vars_h[vars_h == TRUE]), names(vars_hmcw[vars_hmcw == TRUE]) )
   
@@ -176,7 +193,8 @@ load_survey_object = function( .country = "Angola",
   
   x = hmcwh %>% mutate(
     weight.h = as.numeric( hv005 / 1000000 ),
-    weight.w = as.numeric( v005w / 1000000 ),
+    weight.hm = as.numeric( hv005 / 1000000 ),
+    weight.w = as.numeric( v005 / 1000000 ),
     weight.c = as.numeric( v005 / 1000000 ),
     
     hml32 = if( exists('hml32', where = hmcwh)) { ifelse(hml32>1 , NA, hml32) } else { NA},
@@ -192,6 +210,22 @@ load_survey_object = function( .country = "Angola",
     
     b78 = if( exists('b8', where = hmcwh)) { ifelse( is.na(b8), b7, b8)} else { NA}, # age(ys) of live and dead
     b78 = if( exists('b78', where = hmcwh)) { ifelse( b78>4, NA, b78)} else { NA},
+    
+    # bednet usage
+    # children under 5 slept under net last night: v460
+    ## if have bednet
+
+    v460a = if( exists('v460', where = hmcwh)) { ifelse(v460 == 2 , 1, v460) } else { NA},
+    v460a = if( exists('v460', where = hmcwh)) {  ifelse(v460a > 1 , NA, v460a) } else { NA},
+    
+    # ## all children
+    v460b = if( exists('v460', where = hmcwh)) { ifelse(v460 == 2 , 1, v460) } else { NA},
+    v460b = if( exists('v460', where = hmcwh)) { ifelse(v460b > 1 , 0, v460b) } else { NA},
+    
+    # holes in the net: sh133b.  Remove DK = 8
+    sh133b = if( exists('sh133b', where = hmcwh)) { ifelse(sh133b == 8 , NA, sh133b) } else { NA},
+    
+    
     one = 1
 )
         
@@ -202,14 +236,14 @@ load_survey_object = function( .country = "Angola",
   
   
           
-#### alternative
+#### alternative  
 # test if strata exists; some surveys have no strata (e.g. madagascar mis 2011)
 has.strata.022 = nrow( as.data.frame.table( table(hmcwh$hv022) ) ) > 1
 has.strata.023 = nrow( as.data.frame.table( table(hmcwh$hv023) ) ) > 1
 has.strata.025 = nrow( as.data.frame.table( table(hmcwh$hv025) ) ) > 1
 
-sum(!(hmcwh$hv023 == hmcwh$v023), na.rm = TRUE)
-sum(!(hmcwh$hv025 == hmcwh$v025), na.rm = TRUE)
+# sum(!(hmcwh$hv023 == hmcwh$v023), na.rm = TRUE)
+# sum(!(hmcwh$hv025 == hmcwh$v025), na.rm = TRUE)
 
 # if (has.strata.025) { # urban/rural
 #   if (has.strata.023)  { 
@@ -232,30 +266,40 @@ sum(!(hmcwh$hv025 == hmcwh$v025), na.rm = TRUE)
 if (has.strata.022) { # urban/rural
     strataformula.h = as.formula("~hv022 ")
     strataformula.c = as.formula("~v022 ")
+    strataformula.w = as.formula("~v022 ")
+    strataformula.hm = as.formula("~hv022 ")
   } else {
       strataformula.h = NULL
       strataformula.c = NULL
+      strataformula.w = NULL
+      strataformula.hm = NULL
       }
 
 # see Vanderelst/Speybroeck (different from Damico); to include household? 
- x.h = x %>% filter(!is.na(hv021))
+ x.h = x %>% filter(h == 1, !is.na(hv021) )
  
- svy.h <- 
-            svydesign( 
-              ~hv021 , # psu 
-              strata = strataformula.h , 
-              data = x.h , 
-              weights = ~ weight.h
-            )
+ # household
+  if ( nrow( x.h) > 0 )
+      { 
+         svy.h <- 
+                    svydesign( 
+                      ~hv021 , # psu 
+                      strata = strataformula.h , 
+                      data = x.h , 
+                      weights = ~ weight.h
+                    )
+  } else {
+    svy.h = NULL
+  }
         
   # svy.h <- update( one = 1 , svy.h ) # deprecated because 'one' previously defined in dataset x
   
-  svytotal( ~one , svy.h ) # ????
-  svyby( ~one , ~one , svy.h , unwtd.count )
-  svyby( ~one , ~hv025 , svy.h , unwtd.count )
+  # svytotal( ~one , svy.h ) # ????
+  # svyby( ~one , ~one , svy.h , unwtd.count )
+  # svyby( ~one , ~hv025 , svy.h , unwtd.count )
   
   # childrens...
-  x.c = x %>% filter(weight.c > 0)
+  x.c = x %>% filter( c == 1, !is.na(v021) )
   svy.c <- 
             svydesign( 
               ~v021  , # psu 
@@ -264,12 +308,32 @@ if (has.strata.022) { # urban/rural
               weights = ~ weight.c
             )   
   
+  # womens
+  x.w = x %>% filter( w == 1 , !is.na(v021) )
+  svy.w <- 
+            svydesign( 
+              ~v021  , # psu 
+              strata = strataformula.w , 
+              data =  x.w , 
+              weights = ~ weight.w
+            )  
+  
+  # household member
+  x.hm = x %>% filter( hm == 1, !is.na(hv021) ) # weight.hm > 0
+  svy.hm <- 
+            svydesign( 
+              ~hv021  , # psu 
+              strata = strataformula.hm , 
+              data =  x.hm , 
+              weights = ~ weight.hm
+            )  
+  
   vars_x = sapply( names(x), function(x) any(grepl(paste0("\\b", x, "\\b"), x)) )
   
   if (dataset){
-    return( list(svy.h, svy.c, vars_x, x))
+    return( list(svy.h, svy.c, svy.w, svy.hm, vars_x, x))
   }  else {
-    return( list(svy.h, svy.c, vars_x))
+    return( list(svy.h, svy.c, svy.w, svy.hm, vars_x))
   }    
   
   
