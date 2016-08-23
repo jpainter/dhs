@@ -32,7 +32,7 @@ source( "dhs_load_survey.R" )
   
   age_breaks = c(0, 1, 3, 6, 12, 24, 36, 48, 60 )
   
-  cohort = function( i = 1, interview_date, birth_date, alive, death_age  ){
+  cohort = function( i = 1, interview_date = v008, birth_date = b3  ){
     t1 = interview_date - 60  # date of interview(CMC) - 60
     tu = interview_date
     a1 = age_breaks[ i ] 
@@ -49,31 +49,33 @@ source( "dhs_load_survey.R" )
     )
   }
     
-  component_survival = function( i = 1, interview_date, birth_date, alive, death_age  ){
-    t1 = interview_date - 60  # date of interview(CMC) - 60
-    tu = interview_date
+  u5numerator = function( i, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ){
+    
     a1 = age_breaks[ i ] 
     au = age_breaks[ i + 1 ] - 1
-    t1au = t1 - au
-    t1a1 = t1 - a1
-    tuau = tu - au
-    tua1 = tu - a1
     
-    cohort = ifelse( birth_date >= t1au & birth_date <= t1a1, "a",
-                     ifelse( birth_date >= t1a1 & birth_date <= tuau, "b",
-                             ifelse( birth_date >= tuau & birth_date <= tua1, "c",  NA )
-                     )
-    )
+    cohort = cohort( i, interview_date, birth_date )
     
     # for most recent 5 year period--the only data we have available, no children in cohort A
-    component_survival = 
-      ifelse( cohort %in% c("b") &  alive == 1, 1,
-              ifelse( cohort %in% c("a", "c") & alive == 1, 0.5,
-                      ifelse( cohort %in% c("b", "c") & !(alive == 1) & death_age %in% a1:au , 0,
-                              NA 
-              )))
+    # assume that 'special' case applies for most recent 5yr period
+    numer = 
+      ifelse( cohort %in% c("b") & (alive == 0) & death_age %in% a1:au , 1 ,
+              ifelse( cohort %in% c("a", "c") & (alive == 0) & death_age %in% a1:au , 0.5 , 0
+              ))
     
-    return(component_survival)
+    return(numer)
+  }
+  
+  u5denominator = function( i, interview_date = v008, birth_date = b3, alive = b5, death_age = b7  ){
+
+    cohort = cohort( i, interview_date, birth_date )
+    
+    denom = 
+      ifelse( cohort %in% c("b"), 1,
+              ifelse( cohort %in% c("a", "c"), 0.5, 0 
+              ))
+    
+    return(denom)
   }
   
 
@@ -84,29 +86,29 @@ source( "dhs_load_survey.R" )
                        include.lowest = TRUE,  right = FALSE),
     
     # cohort =   cohort(i = 5, interview_date = v008, birth_date = b3, alive = b5, death_age = b7),
-    cohort1 =  component_survival(i = 1, interview_date = v008, birth_date = b3, alive = b5, death_age = b7) ,
-    cohort1n =  ifelse(cohort1 == 0 | cohort1 == 1, 1, .5) , 
+    cohort1n =  u5numerator(i = 1, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) ,
+    cohort1d =  u5denominator(i = 1, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) , 
     
-    cohort2 =  component_survival(i = 2, interview_date = v008, birth_date = b3, alive = b5, death_age = b7) ,
-    cohort2n =  ifelse(cohort2 == 0 | cohort1 ==1, 1, .5) , 
+    cohort2n =  u5numerator(i = 2, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) ,
+    cohort2d =  u5denominator(i = 2, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) , 
     
-    cohort3 =  component_survival(i = 3, interview_date = v008, birth_date = b3, alive = b5, death_age = b7) ,
-    cohort3n =  ifelse(cohort3 == 0 | cohort3 ==1, 1, .5) ,  
+    cohort3n =  u5numerator(i = 3, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) ,
+    cohort3d =  u5denominator(i = 3, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) , 
     
-    cohort4 =  component_survival(i = 4, interview_date = v008, birth_date = b3, alive = b5, death_age = b7) ,
-    cohort4n =  ifelse(cohort4 == 0 | cohort4 ==1, 1, .5) , 
+    cohort4n =  u5numerator(i = 4, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) ,
+    cohort4d =  u5denominator(i = 4, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) , 
     
-    cohort5 =  component_survival(i = 5, interview_date = v008, birth_date = b3, alive = b5, death_age = b7) , 
-    cohort5n =  ifelse(cohort5 == 0 | cohort5 ==1, 1, .5) , 
+    cohort5n =  u5numerator(i = 5, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) ,
+    cohort5d =  u5denominator(i = 5, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) , 
     
-    cohort6 =  component_survival(i = 6, interview_date = v008, birth_date = b3, alive = b5, death_age = b7) ,
-    cohort6n =  ifelse(cohort6 == 0 | cohort6 ==1, 1, .5) , 
+    cohort6n =  u5numerator(i = 6, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) ,
+    cohort6d =  u5denominator(i = 6, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) , 
     
-    cohort7 =  component_survival(i = 7, interview_date = v008, birth_date = b3, alive = b5, death_age = b7) ,
-    cohort7n =  ifelse(cohort7 == 0 | cohort7 ==1, 1, .5) , 
+    cohort7n =  u5numerator(i = 7, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) ,
+    cohort7d =  u5denominator(i = 7, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) , 
     
-    cohort8 =  component_survival(i = 8, interview_date = v008, birth_date = b3, alive = b5, death_age = b7),
-    cohort8n = ifelse(cohort8 == 0 | cohort8 ==1, 1, .5) 
+    cohort8n =  u5numerator(i = 8, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 ) ,
+    cohort8d =  u5denominator(i = 8, interview_date = v008, birth_date = b3, alive = b5, death_age = b7 )  
 
     , survey ) 
   
@@ -127,32 +129,40 @@ source( "dhs_load_survey.R" )
   
   for ( i in 1:8 ){
     
-    x = svyratio( as.formula(paste0("~cohort", i)) , as.formula(paste0("~cohort", i, "n")), s , na.rm = TRUE)
+    x = svyratio( as.formula(paste0("~cohort", i, "n")) , 
+                  as.formula(paste0("~cohort", i, "d")), 
+                  s , na.rm = TRUE)
+    
       x1 = unlist(x[1])
       x2 = unlist(x[2])
       
+      n = svytotal( as.formula(paste0("~cohort", i, "n")), s , na.rm = TRUE)
+      d = svytotal( as.formula(paste0("~cohort", i, "d")), s , na.rm = TRUE)
+      n / d
+                
       print(i); print(x1); print(x2)
     
       samples = 100000
     
     if ( i ==1 ){ 
-        px =  x1
-        pxb = rnorm( samples , x1, sqrt(x2) )
+        px =  1 - x1
+        pxb = 1 - rnorm( samples , x1, sqrt(x2) )
         
       } else {
-        px = px * x1
-        pxb = pxb * rnorm( samples , x1, sqrt(x2) )
+        px = px * ( 1 - x1 )
+        pxb = pxb * ( 1 - rnorm( samples , x1, sqrt(x2) ) )
       }
     
   }
   
-  # (1 - px) * 1000
+  (1 - px) * 1000
   
   # posterior distribution of U5 mortality
   pxb = 1 - pxb # convert from survival to mortality
-  mean(pxb * 1000)
-  sd(pxb * 1000)
-  hist( pxb * 1000 )
+  u5m = mean( ( 1- pxb ) * 1000)
+  u5sd = sd( ( 1- pxb ) * 1000)
+  
+  hist( ( 1- pxb )  * 1000 )
   
   # can make similar distribution form mean and sd
   # xx = rnorm( samples ,  mean(pxb * 1000),  sd(pxb * 1000) )
