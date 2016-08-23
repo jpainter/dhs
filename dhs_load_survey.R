@@ -40,9 +40,11 @@ load_survey_object = function( .country = "Angola",
                 vars = NA  # if not specified, will select variables from vars() [dhs_variable_selection.R]
                 ){
   
-  if (is.na(vars)){ 
+  if ( sum(is.na(vars)) > 0 ){ 
     source("dhs_variable_selection.R")
     vars = c( vars(), c('c', 'hm', 'w', 'h') )
+  } else {
+      vars = c( vars, c('c', 'hm', 'w', 'h') )
     }
   
   c = try(

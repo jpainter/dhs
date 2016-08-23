@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # analyze survey data for free (http://asdfree.com) with the r language ####
 # demographic and health surveys
 # all available years
@@ -972,5 +971,3 @@ message( "if others might benefit, send your code to ajdamico@gmail.com" )
 # "only you can prevent forest fires" -smokey bear
 # "take a bite out of crime" -mcgruff the crime pooch
 # "plz gimme your statistical programming" -anthony damico
-
->>>>>>> 741a4edca8fbd909ba688aafbdbbb76e207abfe0
