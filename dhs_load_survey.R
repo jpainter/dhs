@@ -36,16 +36,18 @@ load_survey_object = function( .country = "Angola",
                 .survey_year = "MIS 2011",
                 dataset = TRUE, # returns dataset (x) along with survey design objects
                 geo = TRUE, 
-                printout = FALSE,
-                vars = NA  # if not specified, will select variables from vars() [dhs_variable_selection.R]
+                printout = TRUE,
+                vars = NULL  # if not specified, will select variables from vars() [dhs_variable_selection.R]
                 ){
   
-  if ( sum(is.na(vars)) > 0 ){ 
+  # no vars given, get basic list of variables
+  if ( is.null(vars) ){ 
     source("dhs_variable_selection.R")
-    vars = c( vars(), c('c', 'hm', 'w', 'h') )
-  } else {
-      vars = c( vars, c('c', 'hm', 'w', 'h') )
-    }
+    vars = some_variables()
+  } 
+  
+  vars = unique( c( vars ) ) %>% tolower
+  vars = c( vars[order(vars)], c('weight.c', 'weight.hm', 'weight.w', 'weight.h') )
   
   c = try(
     openSurveyFile(country = .country, survey_year = .survey_year, 
@@ -90,16 +92,19 @@ load_survey_object = function( .country = "Angola",
   }
   
   if (printout){
-    paste( "the household file has", nrow(h), "rows and ", ncol(h), "columns")
-    paste( "the household member file has", nrow(hm), "rows and ", ncol(hm), "columns")
-    paste( "the women's file has", nrow(w), "rows and ", ncol(w), "columns")
-    paste( "the childrens file has", nrow(c), "rows and ", ncol(c), "columns")
-    paste( "the GIS file has", nrow(g), "rows and ", ncol(g), "columns")
+    cat(paste( "the household file has", nrow(h), "rows and ", ncol(h), "columns", "\n",
+           "the household member file has", nrow(hm), "rows and ", ncol(hm), "columns", "\n",
+           "the women's file has", nrow(w), "rows and ", ncol(w), "columns", "\n",
+           "the childrens file has", nrow(c), "rows and ", ncol(c), "columns", "\n",
+           "the GIS file has", nrow(g), "rows and ", ncol(g), "columns")
+    )
   } 
-  
-  c = c %>% mutate( c = 1 )
-  w = w %>% mutate( w = 1 )
-  hm = hm %>% mutate( hm = 1 )
+
+  # to avoid confusion/conflict, create file specific weight variables
+  c = c %>% rename( weight.c = v005 ) 
+  w = w %>% rename( weight.w = v005 )
+  hm = hm %>% rename( weight.hm = hv005 )
+  h = h %>% rename( weight.h = hv005 )
 
   
   vars_c = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(c))) ) 
@@ -107,25 +112,30 @@ load_survey_object = function( .country = "Angola",
   vars_hm = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(hm))) ) 
   vars_h = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(h))) ) 
   
- 
+  # start with household member file: hm
+  
   # merge 1.:
   ## household member with children, excluding variables already in hm
 
-  if ( !class(c) == "try-error" && !is.na(c) &&
-       sapply( "b16", function(x) any(grepl(paste0("\\b", x, "\\b"), names(c))) ) == TRUE)
+  if ( !class(c) == "try-error" && !is.null(c) &&
+       sapply( "b16", function(x) any(grepl(paste0("\\b", x, "\\b"), names(c))) ) == TRUE
+       )
     {
     
   c_vars_not_in_hm = setdiff( names(vars_c[vars_c == TRUE]), names(vars_hm[vars_hm == TRUE] ) )
 
   # full join to get both children of inteviewed women and children of women not interviewed but in house
   hmc = hm[, names(vars_hm[vars_hm == TRUE]) ] %>%
-    full_join( c[, c(c_vars_not_in_hm )],
+    full_join( c[, c_vars_not_in_hm ],
                          by = c("hv001"="v001", "hv002"="v002",  "hvidx" = "b16") )
   } else
-    { hmc = hm }  
+  { hmc = hm }  
+  
+  rm( hm); rm(c) 
 
   if (printout){  
-    paste( "the merged childrens-womens file has", nrow(hmc), "rows and ", ncol(hmc), "columns")
+    cat(paste( "the merged childrens-womens file has", nrow(hmc), "rows and ", ncol(hmc), "columns")
+    )
   }
     
   vars_hmc = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(hmc))) )  
@@ -135,9 +145,6 @@ load_survey_object = function( .country = "Angola",
   
   if ( !class(w) == "try-error" && !is.na(w) )
     {
-
-    # rename womens weight variable
-    w = w %>% rename(v005w = v005)
     
     vars_w = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(w))) ) 
     w_vars_not_in_hmc = setdiff( names(vars_w[vars_w == TRUE]), 
@@ -145,16 +152,18 @@ load_survey_object = function( .country = "Angola",
     
     # join all interviewed women in household
     hmcw = hmc %>%
-      left_join( w[, c(w_vars_not_in_hmc, "v003", "v005w") ],
+      left_join( w[, c(w_vars_not_in_hmc , "v003" )],
                          by = c("hv001"="v001", "hv002"="v002", "hv003" = "v003") )
   } else
-      { hmcw = hmc } 
+  { hmcw = hmc } 
+  
+  rm( hmc ) 
   
   if (printout){
-      paste( "the merged household member-children-womens file has", nrow(hmcw), "rows and ", ncol(hmcw), "columns")
+      cat(paste( "the merged household member-children-womens file has", nrow(hmcw), "rows and ", ncol(hmcw), "columns"))
   }
   
-  vars_hmcw = sapply( c(vars, "v005w"), function(x) any(grepl(paste0("\\b", x, "\\b"), names(hmcw))) )
+  vars_hmcw = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(hmcw))) )
   
   # merge 3.:
   ## merged file with household (if needed)
@@ -162,11 +171,6 @@ load_survey_object = function( .country = "Angola",
   #Are there any variable to add?
     if ( !class(h) == "try-error" && !is.na(h) )
       { 
-      
-        h = h %>% mutate( h = 1 )
-        
-        # rename household weight variable
-        h = h %>% rename(hv005h = hv005)
         
         vars_h = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(h))) ) 
         h_vars_not_in_hmcw = setdiff(names(vars_h[vars_h == TRUE]), names(vars_hmcw[vars_hmcw == TRUE]) )
@@ -179,91 +183,81 @@ load_survey_object = function( .country = "Angola",
         } else 
         { hmcwh = hmcw }
     } else 
-          { hmcwh = hmcw }
+    { hmcwh = hmcw }
+  
+  rm( hmcw )
+  
+  vars_hmcwh = sapply( vars, function(x) any(grepl(paste0("\\b", x, "\\b"), names(hmcwh))) )
+
 
   ##  join geo file 
   # geo file variable DHSID links with Household Member Recode variable hv001 (cluster number)
-  if ( geo && is.data.frame(hmcwh) && !class(g) == "try-error" && !is.na(g) )
+  if ( geo && is.data.frame(hmcwh) && !class(g) == "try-error" && !is.null(g) )
     {
-    hmcwh = hmcwh %>% left_join(g, by=c("hv001"="dhsid") )
+    hmcwhg = hmcwh %>% left_join(g, by=c("hv001"="dhsid") )
+  } else {
+    hmcwhg = hmcwh
   }
+  
+  rm(  hmcwh ) 
+
+    
+  vars_hmcwhg = sapply( c(vars, "v005w"), function(x) any(grepl(paste0("\\b", x, "\\b"), names(hmcwhg))) )
 
   if (printout){
-    paste( "the merged household member-children-womens-houshold  file has", 
-             nrow(hmcwh), "rows and ", ncol(hmcwh), "columns")
+    cat(paste( "the merged household member-children-womens-houshold  file has", 
+             nrow(hmcwhg), "rows and ", ncol(hmcwhg), "columns")
+    )
   } 
   
-  x = hmcwh %>% mutate(
-    weight.h = as.numeric( hv005 / 1000000 ),
-    weight.hm = as.numeric( hv005 / 1000000 ),
-    weight.w = as.numeric( v005 / 1000000 ),
-    weight.c = as.numeric( v005 / 1000000 ),
+  # remove hv005 and v005 (the original weight variables), if they are still present
+  if ("v005" %in% names(hmcwhg)){ hmcwhg = hmcwhg %>% select( -v005 )}
+  if ("hv005" %in% names(hmcwhg)){ hmcwhg = hmcwhg %>% select( -hv005 )}
+  
+  hmcwhg = hmcwhg %>% mutate(
+ 
+    # hml32 = if( exists('hml32', where = hmcwh)) { ifelse(hml32>1 , NA, hml32) } else { NA},
+    # hml35 = if( exists('hml35', where = hmcwh)) { ifelse(hml35>1 , NA, hml35)  } else { NA},
     
-    hml32 = if( exists('hml32', where = hmcwh)) { ifelse(hml32>1 , NA, hml32) } else { NA},
-    hml35 = if( exists('hml35', where = hmcwh)) { ifelse(hml35>1 , NA, hml35)  } else { NA},
+    # hml1.n =  if( exists('hml1', where = hmcwh)) { ifelse(hml1 %in% 0:97 , hml1, NA)  } else { NA},
+    # hml1.own =  if( exists('hml1', where = hmcwh)) { ifelse(hml1 > 0 , 1, 0)  } else { NA},
+    # hml12.anynet = if( exists('hml12', where = hmcwh)) { ifelse( hml12 %in% 1:3, 1, 0)} else { NA},
+    # hml12.itn = if( exists('hml12', where = hmcwh)) { ifelse( hml12 %in% 1:2, 1, 0)} else { NA}, 
     
-    hml1.n =  if( exists('hml1', where = hmcwh)) { ifelse(hml1 %in% 0:97 , hml1, NA)  } else { NA},
-    hml1.own =  if( exists('hml1', where = hmcwh)) { ifelse(hml1 > 0 , 1, 0)  } else { NA},
-    hml12.anynet = if( exists('hml12', where = hmcwh)) { ifelse( hml12 %in% 1:3, 1, 0)} else { NA},
-    hml12.itn = if( exists('hml12', where = hmcwh)) { ifelse( hml12 %in% 1:2, 1, 0)} else { NA}, 
+    hv105.grp = if( exists('hv105', where = hmcwhg)) { cut( hv105, breaks = c(0, 1, 5,15,25,55,Inf), include.lowest = TRUE )} else { NA}
+    # hv105.grp.c = if( exists('hv105', where = hmcwh)) { cut( hv105, breaks = c(0, 1, 2, 3, 4, 5 ), include.lowest = TRUE )} else { NA},
     
-    hv105.grp = if( exists('hv105', where = hmcwh)) { cut( hv105, breaks = c(0, 1, 5,15,25,55,Inf), include.lowest = TRUE )} else { NA},
-    hv105.grp.c = if( exists('hv105', where = hmcwh)) { cut( hv105, breaks = c(0, 1, 2, 3, 4, 5 ), include.lowest = TRUE )} else { NA},
-    
-    b78 = if( exists('b8', where = hmcwh)) { ifelse( is.na(b8), b7, b8)} else { NA}, # age(ys) of live and dead
-    b78 = if( exists('b78', where = hmcwh)) { ifelse( b78>4, NA, b78)} else { NA},
+    # b78 = if( exists('b8', where = hmcwh)) { ifelse( is.na(b8), b7, b8)} else { NA}, # age(ys) of live and dead
+    # b78 = if( exists('b78', where = hmcwh)) { ifelse( b78>4, NA, b78)} else { NA},
     
     # bednet usage
     # children under 5 slept under net last night: v460
     ## if have bednet
 
-    v460a = if( exists('v460', where = hmcwh)) { ifelse(v460 == 2 , 1, v460) } else { NA},
-    v460a = if( exists('v460', where = hmcwh)) {  ifelse(v460a > 1 , NA, v460a) } else { NA},
+    # v460a = if( exists('v460', where = hmcwh)) { ifelse(v460 == 2 , 1, v460) } else { NA},
+    # v460a = if( exists('v460', where = hmcwh)) {  ifelse(v460a > 1 , NA, v460a) } else { NA},
     
     # ## all children
-    v460b = if( exists('v460', where = hmcwh)) { ifelse(v460 == 2 , 1, v460) } else { NA},
-    v460b = if( exists('v460', where = hmcwh)) { ifelse(v460b > 1 , 0, v460b) } else { NA},
+    # v460b = if( exists('v460', where = hmcwh)) { ifelse(v460 == 2 , 1, v460) } else { NA},
+    # v460b = if( exists('v460', where = hmcwh)) { ifelse(v460b > 1 , 0, v460b) } else { NA},
     
     # holes in the net: sh133b.  Remove DK = 8
-    sh133b = if( exists('sh133b', where = hmcwh)) { ifelse(sh133b == 8 , NA, sh133b) } else { NA},
+    # sh133b = if( exists('sh133b', where = hmcwh)) { ifelse(sh133b == 8 , NA, sh133b) } else { NA},
     
-    
-    one = 1
+    # one = 1
 )
-        
- if (printout){
-      paste( "the completed merged file has", nrow(x), "rows and ", ncol(x), "columns")
+      
+  x = hmcwhg; rm(hmcwhg)
    
+ if (printout){
+      cat(paste( "the completed merged file has", nrow(x), "rows and ", ncol(x), "columns"))
   }
-  
-  
           
-#### alternative  
-# test if strata exists; some surveys have no strata (e.g. madagascar mis 2011)
-has.strata.022 = nrow( as.data.frame.table( table(hmcwh$hv022) ) ) > 1
-has.strata.023 = nrow( as.data.frame.table( table(hmcwh$hv023) ) ) > 1
-has.strata.025 = nrow( as.data.frame.table( table(hmcwh$hv025) ) ) > 1
+  # test if strata exists; some surveys have no strata (e.g. madagascar mis 2011)
+  has.strata.022 = nrow( as.data.frame.table( table(x$hv022) ) ) > 1
+  has.strata.023 = nrow( as.data.frame.table( table(x$hv023) ) ) > 1
+  has.strata.025 = nrow( as.data.frame.table( table(x$hv025) ) ) > 1
 
-# sum(!(hmcwh$hv023 == hmcwh$v023), na.rm = TRUE)
-# sum(!(hmcwh$hv025 == hmcwh$v025), na.rm = TRUE)
-
-# if (has.strata.025) { # urban/rural
-#   if (has.strata.023)  { 
-#     strataformula.h = as.formula("~hv025 + hv023")
-#     strataformula.c = as.formula("~v025 + v023")
-#   } else {
-#     strataformula.h = as.formula("~hv025")
-#     strataformula.c = as.formula("~v025")
-#   }
-#   } else { 
-#     if (has.strata.023) {
-#       strataformula.h = as.formula("~hv023")
-#       strataformula.c = as.formula("~v023")
-#     } else { 
-#       strataformula.h = NULL
-#       strataformula.c = NULL
-#       }
-#   }
 
 if (has.strata.022) { # urban/rural
     strataformula.h = as.formula("~hv022 ")
@@ -278,7 +272,7 @@ if (has.strata.022) { # urban/rural
       }
 
 # see Vanderelst/Speybroeck (different from Damico); to include household? 
- x.h = x %>% filter(h == 1, !is.na(hv021) )
+ x.h = x %>% filter( !is.na(weight.h), !is.na(hv021) )
  
  # household
   if ( nrow( x.h) > 0 )
@@ -288,7 +282,7 @@ if (has.strata.022) { # urban/rural
                       ~hv021 , # psu 
                       strata = strataformula.h , 
                       data = x.h , 
-                      weights = ~ weight.h
+                      weights = ~ weight.h 
                     )
   } else {
     svy.h = NULL
@@ -301,17 +295,17 @@ if (has.strata.022) { # urban/rural
   # svyby( ~one , ~hv025 , svy.h , unwtd.count )
   
   # childrens...
-  x.c = x %>% filter( c == 1, !is.na(v021) )
+  x.c = x %>% filter( !is.na(weight.c), !is.na(v021) )
   svy.c <- 
             svydesign( 
               ~v021  , # psu 
               strata = strataformula.c , 
               data =  x.c , 
-              weights = ~ weight.c
+              weights = ~ weight.c 
             )   
   
   # womens
-  x.w = x %>% filter( w == 1 , !is.na(v021) )
+  x.w = x %>% filter( !is.na(weight.w) , !is.na(v021))
   svy.w <- 
             svydesign( 
               ~v021  , # psu 
@@ -321,13 +315,13 @@ if (has.strata.022) { # urban/rural
             )  
   
   # household member
-  x.hm = x %>% filter( hm == 1, !is.na(hv021) ) # weight.hm > 0
+  x.hm = x %>% filter( !is.na(weight.hm), !is.na(hv021) )
   svy.hm <- 
             svydesign( 
               ~hv021  , # psu 
               strata = strataformula.hm , 
               data =  x.hm , 
-              weights = ~ weight.hm
+              weights = ~ weight.hm 
             )  
   
   vars_x = sapply( names(x), function(x) any(grepl(paste0("\\b", x, "\\b"), x)) )

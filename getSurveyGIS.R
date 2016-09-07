@@ -23,12 +23,15 @@ survey_GIS_data = function(
   
   gis = grepl("Supplemental/flat ascii (.dat)", subfolders, fixed = TRUE)
   
-  if (sum(gis, na.rm = TRUE) == 0){ return(NA)}
+  if (sum(gis, na.rm = TRUE) == 0){ return(NULL)}
   
   gisfolder =  subfolders[gis]
   
   files = list.files(gisfolder)
   shp.file = files[ grepl(".shp", files, fixed = TRUE)][1]
+  
+  if ( is.na(shp.file) ){ return(NULL)}
+  
   shp.name = strsplit(shp.file, ".", fixed = TRUE)[[1]][1]
   
   shapefile = readOGR( gisfolder, shp.name, verbose = FALSE )

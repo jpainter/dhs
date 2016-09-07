@@ -89,6 +89,12 @@ library(XML)		# load XML (parses through html code to extract links)
 
 # authentication page ####
 
+# is setInternet2 the answer?  Try on windows...https://www.r-bloggers.com/friday-function-setinternet2/
+setInternet2(TRUE)
+
+# https://support.rstudio.com/hc/en-us/articles/206827897-Secure-Package-Downloads-for-R
+options(download.file.method = "curl")
+
 ## JP credentials in login_credentials.txt
 
 your.username <- ""
@@ -107,7 +113,7 @@ countries.page <- "https://dhsprogram.com/data/dataset_admin/download-datasets.c
 
 # create a temporary file and temporary directory
 #  TODO: this only seems to work correctly on windows platform
-tf <- tempfile( tmpdir = "C:\\temp") 
+tf <- tempfile( ) 
 # ; td <- tempdir() 
 
 # set the username and password

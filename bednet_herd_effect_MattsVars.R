@@ -27,17 +27,18 @@
 # M49A
 # S307A (just for one survey: Burkina Faso MIS 2014)
 
-vars = c('HV253', 'V461', 
-         'HML1', 'ML101', 'ML0', 'V459', 'HV227' , # no. nets, etc.
-         'HV009', 'HV012', 'HV013', # number of persons sleeping (ratio with # nets)
-         'H47', 'H37F', 'H37G' , 'H37H', 
-         'ML13F', 'ML13G', 'MLH', 'M49A', 
-         'S307A',
-         'V455', 'HA55', 'HB55', 'HC55', 'HW55' , # hemoglobin
-         'HML32', 'HML33', 'HML34', 'HML35' # malaria results
-         
-         # TODO: include presence of species..HML32A, HML32B etc
-)
+  vars = c('HV253', 'V461', 
+           'HML1', 'ML101', 'ML0', 'V459', 'HV227' , # no. nets, etc.
+           'HV009', 'HV012', 'HV013', # number of persons sleeping (ratio with # nets)
+           'H47', 'H37F', 'H37G' , 'H37H', 
+           'ML13F', 'ML13G', 'MLH', 'M49A', 
+           'S307A',
+           'V455', 'HA55', 'HB55', 'HC55', 'HW55' , # hemoglobin
+           'HML32', 'HML33', 'HML34', 'HML35' # malaria results
+           
+           # TODO: include presence of species..HML32A, HML32B etc
+  )
+
   
 library(dplyr)
 library(feather)

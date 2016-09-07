@@ -4,8 +4,7 @@
 # str(data_dictionary)
 # 
 # library(dplyr)
-
-vars = function(){
+some_variables = function(){
   vars = c(
             "v000", "hv000", # country code and phase
            "hv021", "v021", # psu
@@ -61,6 +60,7 @@ vars = function(){
            
            # nets
            "hml1", "hml2", "hml9", # number nets, child under net last night,  months ago obtained net
+           "hml7", # brand of bednet
            "hml10", # ITN net 
            "hml12", # type of net slept under (recode to get slept under)
            "hv227",  "hml20", # has net for sleeping, slept under llin,
@@ -68,6 +68,7 @@ vars = function(){
            "ml0", # childs type of net
            "v459", # Have mosquito bed net for sleeping (from househ
            "v460", # Children under 5 slept under bednet last night
+           "v461", # respondent slept under bednet
            "sh133b", # holes in net
            
            # MIP
@@ -76,14 +77,17 @@ vars = function(){
            "s307a", # took fansidar (burkina)
            "s309", # number of times took fansidar (burkina)
            
-           "v461", "v459", "hml7",
+           # drugs taken during pregnancy
+           "M49A" ,"M49B" ,"M49C" ,"M49D"  ,"M49E"  ,"M49F", "M49G" ,"M49X" ,"M49Z", "M49Y" ,     
            
            # anemia
            "hc57", # anemia level sever(1), mod(2), mild(3), not(4), missing(9)
            
            "dhsid", "latitude", "longitude"
 )
+  return(vars)
 }
+
 
 # v = data_dictionary %>% filter( var %in% toupper(vars())) 
 # str(v)
