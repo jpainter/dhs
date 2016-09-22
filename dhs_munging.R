@@ -35,8 +35,7 @@ variables = variables[ order(variables) ]
 
 # open dictionary ####
 
-library(feather)
-dd <- read_feather("dictionary.feather")  # about 2 sec
+dd <- readRDS("dictionary.rds")  
 
 # list variables and variable names
 lv = dd %>% mutate( item_name = tolower(Item_Name) ) %>% 
@@ -51,17 +50,23 @@ variable_names = lv; save(variable_names, file = "variable_names.rda")
 
 source("file_list.r")
 
-files = as_data_frame(files) %>% filter( survey!="" )
+# select country survey year ####
 
-not_needed = c('Bangladesh', 'Nepal', 'Pakistan', 'Philippines', 'Comoros')
+library(countrycode)
+subsahara = countrycode_data %>%
+  filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
+  select( country.name, iso3c ) 
 
-survey_list = files %>% count(country, survey, year) %>%
-  filter( !( country %in% not_needed ) ) %>%
-  filter( year > 2003)
+files = files %>% 
+  mutate( country.name = countrycode(country, "country.name", "country.name")) %>%
+  filter( survey!="", year >= 2000 , country.name %in% subsahara$country.name)
+
+# not_needed = c('Bangladesh', 'Nepal', 'Pakistan', 'Philippines', 'Comoros')
+
+survey_list = files %>% count(country, survey, year) 
 
 View(survey_list)
 
-# select country survey year ####
 # Create master survey file with selected variables ####
 
 source("dhs_load_survey.R")
@@ -75,6 +80,7 @@ for (survey_index in 1:nsurveys){
   p$pause(0.1)$tick()$print()
   
   .country = survey_list[survey_index, ]$country
+  .iso3c = countrycode( survey_list[survey_index, ]$country, "country.name", "iso3c")
   .survey = survey_list[survey_index, ]$survey
   .year = survey_list[survey_index, ]$year
   .survey_year = paste(.survey, .year)
@@ -99,6 +105,7 @@ for (survey_index in 1:nsurveys){
   x = svy[[6]] 
   
   x$country = rep( .country, nrow(x) )
+  x$iso3c = rep( .iso3c, nrow(x) )
   x$year = rep( .year, nrow(x) )
   x$survey = rep( .survey, nrow(x) )
 
@@ -147,12 +154,13 @@ for (col in 1:length(colnames(y))){
 
 # Save master file #####
 object.size(X)
-save(X, file = "svyX.rda")
+
+saveRDS(X, file = "svyX.rds")
 # library(feather); write_feather(X, "svyX.feather") # too large--3.5GB
 
 
 #  Load master file ####
-load("svyX.rda")
+X = loadRDS("svyX.rds")
 
 # reduce to those surveys with testing
 comma(nrow(X))
@@ -169,9 +177,9 @@ has.para = X %>% group_by(country, year, survey) %>%
 X.para = inner_join(X, has.para) %>% select(-notest, -rows)
 comma(nrow(X.para))
 
-save(X.para, file = 'X.para.rda')
+saveRDS(X.para, file = 'X.para.rds')
 
-load("X.para.rda")
+X.para = loadRDS("X.para.rda")
 
 # subset:
 
@@ -189,7 +197,7 @@ dict_x = dd %>% filter_( ~country == 'Burkina Faso' , ~survey == 'Standard DHS',
 svy.x.hm  <- 
             svydesign( 
               ~hv021  , # psu 
-              strata = NULL , 
+              strata = ~hv023 , 
               data =  xhm , 
               weights = ~ weight.hm  # weights for household member file
             )  
@@ -203,7 +211,7 @@ svytotal(~one, svy.w)
 svytotal(~one, svy.hm)
 
 # slide and rdt result
-svymean(~hml32 + hml35, svy.hm, na.rm = TRUE)
+svymean(~hml32 + hml35, svy.x.hm, na.rm = TRUE)
 svymean(~hml32 + hml35, svy.w, na.rm = TRUE)
 svymean(~hml32 + hml35, svy.c, na.rm = TRUE)
 svymean(~hml32 + hml35, svy.h, na.rm = TRUE)

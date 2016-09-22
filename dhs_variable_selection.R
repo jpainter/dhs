@@ -8,9 +8,11 @@ some_variables = function(){
   vars = c(
             "v000", "hv000", # country code and phase
            "hv021", "v021", # psu
+           "hv022", "v022", # Sample stratum number
            "hv023", "v023", # strata
+           "hv024", "v024", # region
            "hv005", "v005", # weight
-           "hv025", "v025", #urban (1), rural(2)
+           "hv025", "v025", # urban (1), rural(2)
            "hv026", # type of town: large city(0), small city(1), town(2), country(3), missing (9)
            "hv006", "hv007", # month, year of interview,
            "hv008", # interview date (CMC)
@@ -18,7 +20,7 @@ some_variables = function(){
            "b16", # mothers id/line number
            "v001", "v002", "v003", # cluster, household, woman
            "hv001", "hv002", "hv003", "midx", "hvidx", "hv111",
-           "hv024", 
+           
             
            "hv106", # place of residence
            
@@ -46,7 +48,7 @@ some_variables = function(){
            "S238" , # had a fever
            
            # provider
-           "sh108a",  # only available from CDR 2007 (distance to clinic)
+           "sh108a",  # only available from DRC 2007 (distance to clinic)
            "h32a", "h32b", "h32c",#  government clinic...more detail in h32d:z
            "hml32", "hml35", # slide; rdt
            
@@ -56,7 +58,13 @@ some_variables = function(){
            
            # IRS
            "hv253", # has dwelling been sprayed
-           "sh109b", # months ago was sprayed (irs)
+           "sh109a", # Someone sprayed interior walls, Angola only
+           "SH48K", # Ethiopia only 
+           
+           "sh109b", # months ago was sprayed (irs).  NB ANGOLA only
+           "s22", # Madagascar only
+           "SH126B", # Uganda only
+           "SH48L", # Ethiopia only
            
            # nets
            "hml1", "hml2", "hml9", # number nets, child under net last night,  months ago obtained net
@@ -83,11 +91,23 @@ some_variables = function(){
            # anemia
            "hc57", # anemia level sever(1), mod(2), mild(3), not(4), missing(9)
            
+           # environment
+           "SH39C", # House has windows with screens
+           "SH127H", # HH uses covered windows/screens to avoid
+           "S422AB", # Screened window: protection from malaria
+           "SH125A", # Windows with grids to prevent mosquitoes
+           "SH119C", # Windows with screens
+           "SH201", # Windows with wire netting to hinder mosquitoes
+           
            "dhsid", "latitude", "longitude"
 )
   return(vars)
 }
 
+
+## find IRS variables using search term 'spray'
+# irs = dd %>% filter( grepl("spray", Item_Label, fixed = TRUE)) %>% count(Item_Name, Item_Label)
+# kable(irs)
 
 # v = data_dictionary %>% filter( var %in% toupper(vars())) 
 # str(v)
