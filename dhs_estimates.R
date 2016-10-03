@@ -178,12 +178,12 @@ View(dict_x)
     mmp = precis(mm, depth = 2) 
     logistic(mmp@output$Mean)
     
-    # Global mean???
-    mu = link(mm, data = data.frame(region_id = 1:13))
+    ### Global mean???
+    mu = link(mm, data = data.frame(region_id = 1:13)) # link returns original units
     apply( mu, 2, mean) # crude
     apply( mu, 2, HPDI, prob = .95)
     
-    # Weighted mean using relative weights for each region
+    ### Weighted mean using relative weights for each region
     w = x %>% 
       select(  hv024, weight.hm ) %>%
       group_by( hv024 ) %>% 
@@ -194,10 +194,29 @@ View(dict_x)
     mean( mu %*% w$w )
     HPDI( mu %*% w$w )
     
-    # compared with survey estimate:
+    ### compared with survey estimate:
     sm = svymean(~hml32 , svy.x.hm, na.rm = TRUE) 
     c( sm[1] - 1.96*(attributes(sm)$var)^.5, sm[1] + 1.96*(attributes(sm)$var)^.5 )
-    # region and psu ---
+    
+    ### compare regions pairwise
+    post = extract.samples(mm) # post samples need logistic()
+    
+    compare1_2 = post$a_region[,2] - post$a_region[,1]
+    hist(compare1_2)
+    HPDI(compare1_2)
+    prob1gtr2 = sum(compare1_2>0) / length(compare1_2)
+    prob3gtr2 = sum(compare1_2<0) / length(compare1_2)
+    prob1gtr2; prob3gtr2
+    
+    compare2_3 = post$a_region[,2] - post$a_region[,3]
+    HPDI(compare2_3)
+    prob2gtr3 = sum(compare2_3>0) / length(compare2_3)
+    prob3gtr2 = sum(compare2_3<0) / length(compare2_3)
+    prob2gtr3; prob3gtr2 
+    
+    # pairs(post)
+    
+    # TODO region and psu --- #####
     
     
   

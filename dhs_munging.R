@@ -4,8 +4,8 @@
 # following line..  library(formatR); formatR::tidy_app()
 
 library(data.table)
-library(dplyr)
-library(tibble)
+library(tidyverse)
+library(countrycode)
 
 # clear memory
 rm( list = ls()); gc()
@@ -52,37 +52,41 @@ source("file_list.r")
 
 # select country survey year ####
 
-library(countrycode)
-subsahara = countrycode_data %>%
-  filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
-  select( country.name, iso3c ) 
+  subsahara = countrycode_data %>%
+    filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
+    select( country.name, iso3c ) 
+  
+  files = files %>% 
+    mutate( country.name = countrycode(country, "country.name", "country.name")) %>%
+    filter( survey!="", year >= 2000 , country.name %in% subsahara$country.name)
 
-files = files %>% 
-  mutate( country.name = countrycode(country, "country.name", "country.name")) %>%
-  filter( survey!="", year >= 2000 , country.name %in% subsahara$country.name)
-
-# not_needed = c('Bangladesh', 'Nepal', 'Pakistan', 'Philippines', 'Comoros')
-
-survey_list = files %>% count(country, survey, year) 
-
-View(survey_list)
+  # not_needed = c('Bangladesh', 'Nepal', 'Pakistan', 'Philippines', 'Comoros')
+  
+  survey_list = files %>% count(country, survey, year) 
+  
+  View(survey_list)
 
 # Create master survey file with selected variables ####
 
 source("dhs_load_survey.R")
 
 nsurveys = nrow(survey_list)
+index = row.names(survey_list)
 p <- progress_estimated(nsurveys)
-X = NULL
 
-for (survey_index in 1:nsurveys){
+x <- vector("list", length( nsurveys)) 
+
+translate = TRUE  # optional translation of values to label.  
+  # NB: Does not work well for all variables
+
+for (i in seq_along( index ) ){
   
-  p$pause(0.1)$tick()$print()
+   p$pause(0.1)$tick()$print()
   
-  .country = survey_list[survey_index, ]$country
-  .iso3c = countrycode( survey_list[survey_index, ]$country, "country.name", "iso3c")
-  .survey = survey_list[survey_index, ]$survey
-  .year = survey_list[survey_index, ]$year
+  .country = survey_list[i, ]$country
+  .iso3c = countrycode( survey_list[i, ]$country, "country.name", "iso3c")
+  .survey = survey_list[i, ]$survey
+  .year = survey_list[i, ]$year
   .survey_year = paste(.survey, .year)
 
   print( paste(.country, .survey, .year))
@@ -102,61 +106,60 @@ for (survey_index in 1:nsurveys){
   # svy.w <- svy[[3]]
   # svy.hm <- svy[[4]]
   has_vars = svy[[5]]
-  x = svy[[6]] 
+  x[[i]] = svy[[6]] 
   
-  x$country = rep( .country, nrow(x) )
-  x$iso3c = rep( .iso3c, nrow(x) )
-  x$year = rep( .year, nrow(x) )
-  x$survey = rep( .survey, nrow(x) )
+  x[[i]]$country = rep( .country, nrow(x[[i]]) )
+  x[[i]]$iso3c = rep( .iso3c, nrow(x[[i]]) )
+  x[[i]]$year = rep( .year, nrow(x[[i]]) )
+  x[[i]]$survey = rep( .survey, nrow(x[[i]]) )
 
+  # TODO: optional- relate dictionary to survey 
 
   # refine dictionary for this country-survey 
-  dict = dd %>% filter_( ~country == .country , ~survey == .survey, ~year == .year, 
+  dict = dd %>% filter_( ~country == .country , ~survey == .survey, ~year == .year,
                         ~Item_Name %in% toupper(names(has_vars))
                         )
-  
-  # relate dictionary to survey 
-  
-  translate = FALSE  # optional translation of values to label.  
-  # NB: Does not work well for all variables
 
-  # only for columns with >4 values (others easier to keep as numeric)
-  v = dd %>% filter( tolower(Item_Name) %in% variables) %>% group_by( Item_Name, label ) %>% 
-    summarise( n = n()) %>% group_by( Item_Name) %>% count(Item_Name) %>% filter(nn>4) 
+  # # TODO: only for columns with >4 values (others easier to keep as numeric)
+  # # Deriving this table should happen once, before loop
+  # v = dd %>% filter( tolower(Item_Name) %in% variables) %>% group_by( Item_Name, label ) %>% 
+  #   summarise( n = n()) %>% group_by( Item_Name) %>% count(Item_Name) %>% filter(nn>4) 
 
   if (translate){
-  y = x
-for (col in 1:length(colnames(y))){
-  column = tolower( colnames(y)[col] )
+  y = x[[i]]
   
-  dict_var = dict %>% 
-    mutate( item_name = tolower(Item_Name)) %>%
-    filter_( ~item_name == column ) %>% # , ~file == "Household Member Recode"
-    count( value, label) %>% select(-n)
-  
-  old_value = y[, col]
-  new_value = dict_var[ match( old_value, dict_var$value ), ]$label
-  y[, col] = ifelse( is.na( new_value), old_value, new_value)
-}
-  x = y
+    for (col in 1:length(colnames(y))){
+      column = tolower( colnames(y)[col] )
+      
+      dict_var = dict %>% 
+        mutate( item_name = tolower(Item_Name)) %>%
+        filter_( ~item_name == column ) %>% # , ~file == "Household Member Recode"
+        count( value, label) %>% select(-n)
+      
+      old_value = y[, col]
+      new_value = dict_var[ match( old_value, dict_var$value ), ]$label
+      y[, col] = ifelse( is.na( new_value), old_value, new_value)
+    }
+      x[[i]] = y
 }
 
-  # add _ after var name to (optional)
-  # colnames(y) = paste0(colnames(y), "_")
+  # if (is.null(X) ){ X <- x; next()}
+  # X = rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
   
-  # test: 
-  # svymean(~hml32, sv, na.rm = TRUE)
-  
-  if (is.null(X) ){ X <- x; next()}
-  X = rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
 }
+  
+# X = dplyr:: bind_rows( x )  # will throw error is column types dont match 
+X = rbindlist(x, fill = TRUE)
 
 
 # Save master file #####
 object.size(X)
 
-saveRDS(X, file = "svyX.rds")
-# library(feather); write_feather(X, "svyX.feather") # too large--3.5GB
+if (translate){ 
+    saveRDS(X, file = "svyXtrans.rds")
+} else {
+    saveRDS(X, file = "svyX.rds")
+  }
 
 
 #  Load master file ####

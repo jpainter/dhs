@@ -44,10 +44,9 @@ load_survey_object = function( .country = "Angola",
   if ( is.null(vars) ){ 
     source("dhs_variable_selection.R")
     vars = some_variables()
+    vars = unique( c( vars ) ) %>% tolower
+    vars = c( vars[order(vars)], c('weight.c', 'weight.hm', 'weight.w', 'weight.h') )
   } 
-  
-  vars = unique( c( vars ) ) %>% tolower
-  vars = c( vars[order(vars)], c('weight.c', 'weight.hm', 'weight.w', 'weight.h') )
   
   c = try(
     openSurveyFile(country = .country, survey_year = .survey_year, 

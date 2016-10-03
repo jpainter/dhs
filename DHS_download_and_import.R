@@ -97,10 +97,6 @@ options(download.file.method = "curl")
 
 ## JP credentials in login_credentials.txt
 
-your.username <- ""
-your.password <- ""
-your.project <- ""
-
 source("_DHS_Guides/login_credentials.txt")
        
  terms <- "https://dhsprogram.com/data/dataset_admin/login_main.cfm"

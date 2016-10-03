@@ -29,7 +29,7 @@ some_variables = function(){
             
            # age
            "b1", "b2", "b3", # child month of birth, year of birth, date of birth
-           "v013", # age groups
+           "v013", # age groups for 15-50 years
            "hv105" , # household member age
            "hml16", # years of child according to household/mom (e.g. corrected)
            "hml16a", # months of child according to household/mom (e.g. corrected)
