@@ -8,14 +8,15 @@ library(dplyr)
 
 survey_GIS_data = function(
   country = NA , # "DRC"
-  survey_year = NA
+  survey = NA,
+  year = NA
   )
   {
 
 # test if GIS data:
   folder = paste0("../DHS/", 
                 ifelse( country %in% "DRC", "Congo Democratic Republic", country),
-                "/", survey_year) 
+                "/", survey, " ", year) 
   
   # print(folder); flush.console()
   

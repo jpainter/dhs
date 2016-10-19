@@ -16,27 +16,60 @@ source( "getSurveyGIS.R")
 
 openSurveyFile = function(
   country = NA ,
-  survey_year = NA,
+  # survey_year = NA,
+  survey = NA,
+  year = NA,
   tab = NA
   )
   {
+ 
+  x = NULL
   
   file = paste0(
                 ifelse( country %in% "DRC", "Congo Democratic Republic", country),
-                "/", survey_year, "/", tab, ".rda")
+                "/", survey, " ", year,  "/", tab, ".rda")
   
-  if ( !file.exists( file ) ) return(NA)
-
-  load( file ) # file will be loaded as 'x'
+  if ( file.exists( file ) ){
+      load( file ) # file will be loaded as 'x'
+      
+  } else {
+   
+    filecodes = data_frame( abrev  = c("kr", "br", "ir", "pr", "hr", "hr" ), 
+                            full = c("Children's Recode","Supplemental Births Recode","Individual Recode",
+                                     "Household Member Recode", "Household Recode", "Supplemental Household Recode")) 
+    
+    dir = 
+      paste0(  country, "/", year, "_", survey, "/"  )
+    
+    files = list.files(dir)
+    
+    prefix = paste0(  tolower( countrycode( country, "country.name", "iso2c") ),
+                      filecodes$abrev[ match(tab, filecodes$full) ] )
+    
+    middle = substr( files[-grep(prefix, files, fixed=T)][1], 5, 8 )
+    
+    suffix = ".rds"
+    
+    file = paste0( dir, prefix, middle, suffix) 
+    
+    if ( file.exists( file ) ){
+      x = readRDS( file ) # file will be loaded as 'x'
+    }
+    
+  }
+  
   return(x)
 }
 
 # TODO: get printout working.  R does not normally print from inside a function.
-load_survey_object = function( .country = "Angola", 
-                .survey_year = "MIS 2011",
+load_survey_object = function( 
+                .country = "Angola", 
+                # .survey_year = "MIS 2011",
+                .year = 2011 ,
+                .survey = "DHS",
                 dataset = TRUE, # returns dataset (x) along with survey design objects
-                geo = TRUE, 
-                printout = TRUE,
+                geo = FALSE, 
+                printout = FALSE,
                 vars = NULL  # if not specified, will select variables from vars() [dhs_variable_selection.R]
                 ){
   
@@ -44,41 +77,46 @@ load_survey_object = function( .country = "Angola",
   if ( is.null(vars) ){ 
     source("dhs_variable_selection.R")
     vars = some_variables()
-    vars = unique( c( vars ) ) %>% tolower
-    vars = c( vars[order(vars)], c('weight.c', 'weight.hm', 'weight.w', 'weight.h') )
   } 
   
+  linking_vars = c("hv001", "v001", "hv002", "v002", "hvidx", "b16", "hv003" , "v003", "hv021", "v021" )
+  weight_vars =  c("v005", "hv005", 'weight.c', 'weight.hm', 'weight.w', 'weight.h')
+  vars = unique( c( vars, linking_vars, weight_vars ) ) %>% tolower
+  vars = vars[order(vars)]
+  
+  if (printout){ cat(vars) }
+  
   c = try(
-    openSurveyFile(country = .country, survey_year = .survey_year, 
+    openSurveyFile(country = .country, survey = .survey, year = .year,
                    tab = "Children's Recode")
   )
   
   s = try(
-    openSurveyFile(country = .country, survey_year = .survey_year,
+    openSurveyFile(country = .country,  survey = .survey, year = .year,
                    tab = "Supplemental Births Recode")
   )
   
   
   w = try(
-    openSurveyFile(country = .country, survey_year = .survey_year, 
+    openSurveyFile(country = .country,  survey = .survey, year = .year,
                    tab = "Individual Recode")
   )
   
   
   hm = try(
-    openSurveyFile(country = .country, survey_year = .survey_year, 
+    openSurveyFile(country = .country, survey = .survey, year = .year,
                    tab = "Household Member Recode")
   )
   
   
   h = try(
-    openSurveyFile(country = .country, survey_year = .survey_year, 
+    openSurveyFile(country = .country,  survey = .survey, year = .year,
                    tab = "Household Recode")
   )
   
-  if ( class(h) == "try-error" | class(h) == "logical" ){
+  if ( class(h) == "try-error" | class(h) == "logical" | is.null(h) ){
     h = try(
-      openSurveyFile(country = .country, survey_year = .survey_year, 
+      openSurveyFile(country = .country,  survey = .survey, year = .year,
                    tab = "Supplemental Household Recode")
     )
   }
@@ -86,12 +124,13 @@ load_survey_object = function( .country = "Angola",
   
   if (geo){
   g = try(
-    survey_GIS_data( country = .country, survey_year = .survey_year)
+    survey_GIS_data( country = .country,  survey = .survey, year = .year)
   )
-  }
+  } else {  g = NULL }
   
   if (printout){
-    cat(paste( "the household file has", nrow(h), "rows and ", ncol(h), "columns", "\n",
+    cat(paste( 
+          "the household file has", nrow(h), "rows and ", ncol(h), "columns", "\n",
            "the household member file has", nrow(hm), "rows and ", ncol(hm), "columns", "\n",
            "the women's file has", nrow(w), "rows and ", ncol(w), "columns", "\n",
            "the childrens file has", nrow(c), "rows and ", ncol(c), "columns", "\n",

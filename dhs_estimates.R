@@ -2,19 +2,24 @@
 # setup #####
 library(feather)
 library(data.table)
-library(dplyr)
-library(tibble)
+library(tidyverse)
 library(survey)
+library(knitr)
 
 # clear memory
 rm( list = ls()); gc()
 
+# Main data ####
+# load("X.para.rda")
+X = readRDS(  "provider.rds" )
+
 # list variables and variable names
 load("variable_names.rda"); View(variable_names)
 
+cat( "The file includes", data_nsurveys, "surveys from", data_ncountries, "countries with", nvars, "columns, ", rows, "rows and is " , comma(object.size(X)[1]), "bytes")
 
-# Main data ####
-load("X.para.rda")
+# list surveys included
+kable( X %>% count( country, survey, year ) %>% arrange(desc(year) ) , row.names = TRUE)
 
 # subset: ####
   .country = 'Burkina Faso'
@@ -22,7 +27,7 @@ load("X.para.rda")
   .year = '2010'
   .survey_year =  paste(.survey, .year)
   
-x = X.para %>% 
+x = X %>% 
   filter( country %in% .country, survey %in% .survey , year %in% .year ,
          !is.na(hv021)  # survey design object, below, requires non missing value for psu (hv021)
          )  
@@ -31,13 +36,13 @@ x = X.para %>%
 
 variables = colnames(x)  # variables in dataset
 
-load("dictionary.rda") # from extractMAPdocs.R
+dd <-readRDS("dictionary.rds")  # about 6 sec
 
-dict_x = dictionary %>% 
+dict_x = dd %>% 
   filter_( ~country == .country , ~survey == .survey, ~year == .year, 
                       ~Item_Name %in% toupper( variables )
                       )
-View(dict_x)
+# View(dict_x)
 
 # Survey design object ####
   unique(with(x, paste(country, survey, year)))

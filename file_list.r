@@ -43,6 +43,18 @@ files = files %>%
         year = sapply( strsplit(survey_year, " ", fixed = TRUE), function(x) tail(x, 1))
   )
 
+# fix survey and year for newfile, which are in different format (year_survey)
+newfiles = which(files$year == files$survey_year)
+
+years =  sapply( strsplit( files[newfiles, "survey_year"], "_", fixed = TRUE), function(x) head(x, 1))
+new_years = which( grepl("\\d", years)) 
+files[ newfiles[new_years] , "year"] = years[new_years]
+
+survey = sapply( strsplit( files[newfiles, "survey_year"], "_", fixed = TRUE), function(x) tail(x, 1))
+files[ newfiles[new_years] , "survey"] = survey[new_years]
+ 
+
+
 # nrow(files)
 
 # View(files)

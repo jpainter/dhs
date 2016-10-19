@@ -43,6 +43,21 @@ pmi_iso3 = countrycode(pmi, "country.name", "iso3c")
 # .country = f[11,1]  # 11 = burkina mis2014
 # .survey_year = f[11,2]
 
+variables =  c('v000', 
+       'v001', 'v002', 'v003', 'v005', 'v021', 'v023', 'v024', 'v025', 
+       'weight.c', 'weight.hm', 'weight.w', 'weight.h', 
+       'hv001',  'hv002', 'hv003',  'hv005', 'hv007', 'hv021', 'hv023', 'hv024', 'hv025',
+       'hvidx', 'b16',
+       'h22', 'hv105', 'h47', 
+       'hml16', # age in years
+       'hml32', 'hml35',
+      'h32a', 'h32b', 'h32c', 'h32d', 'h32e', 'h32f', 'h32g', 'h32h', 'h32i', 'h32s', #public/govt
+      'h32j', 'h32k', 'h32l', 'h32m', 'h32n', 'h32o', 'h32p', 'h32q', 'h32r', #private
+      'h32t', 'h32u', 'h32v', 'h32w', 'h32x', # informal privage/other
+      'h32y', # no medical rx
+      'h32z' # medical rx.  what's that mean?
+      )
+
 # source("dhs_variable_selection.R")
 source( "dhs_load_survey.R" )
 
@@ -57,7 +72,8 @@ source( "dhs_load_survey.R" )
 
 # df = data.frame(Data = svy[[3]], row.names = names(svy[[3]]))  # survey structure
 
-load('dictionary.rda') # loads 'data_dictionary'
+dd <-readRDS("dictionary.rds")  # about 6 sec
+
 
 # Forest plot by region ####
 svy_forest_by = function(.var = "hml32", 
@@ -66,13 +82,15 @@ svy_forest_by = function(.var = "hml32",
                          .country = "Burkina Faso",
                          .survey = "MIS",
                          .year = "2014",
-                         .dictionary = dictionary,
+                         .dictionary = dd,
                          .subtitle = "" ){
-  
-  svy = load_survey_object( .country = .country, dataset = FALSE, 
-                            .survey_year = .survey_year ,
-                            geo = FALSE
-  )
+ 
+  svy <- load_survey_object( 
+                        # printout = TRUE ,  # un comment when testing
+                        vars = variables, 
+                        .country = .country, 
+                        .survey = .survey,
+                        .year = .year)
   
   if (.file == "household"){ survey = svy[[1]] 
   } else if ( .file == "children") { survey = svy[[2]] 
@@ -104,10 +122,10 @@ svy_forest_by = function(.var = "hml32",
   # categories/regions and axis label dexcription
   d = dictionary %>% 
     filter( grepl( "member", file, ignore.case = TRUE) , 
-            toupper(Name) == toupper("hv024") ) 
+            toupper(Item_Name) == toupper("hv024") ) 
   
-  values = factor(d$value) 
-  label = paste( unique(d$Name), ":" , unique(d$description) )
+  values = factor(d$label) 
+  label = paste( unique(d$Item_Name), ":" , unique(d$Item_Label) )
   
   # plot
   g =  ggplot(data = sb, aes_string(x = values, y =  .var ) ) +
@@ -116,7 +134,7 @@ svy_forest_by = function(.var = "hml32",
     xlab(NULL) +
     ylab(label) +
     coord_flip() +
-    ggtitle( paste(.country, .survey_year)) 
+    ggtitle( paste(.country, .survey, .year)) 
 
   
   if ( nchar(.subtitle)>0 ){
@@ -127,6 +145,7 @@ svy_forest_by = function(.var = "hml32",
 }
 
 # tests
+
 svy_forest_by(.var="hml32", .by = "hv024", .file = "household",
               .country = "Burkina Faso",
               .survey = "MIS",
@@ -156,13 +175,16 @@ svy_histogram = function(.var = "hml32",
                          .country = "Burkina Faso",
                          .survey = "MIS",
                          .year = "2014",
-                         .dictionary = data_dictionary,
+                         .dictionary = dd,
                          .subtitle = "" ){
   
-  svy = load_survey_object( .country = .country, dataset = FALSE, 
-                            .survey_year = .survey_year ,
-                            geo = FALSE
-  )
+  svy <- load_survey_object( 
+                        # printout = TRUE ,  # un comment when testing
+                        vars = variables, 
+                        .country = .country, 
+                        .survey = .survey,
+                        .year = .year)
+  
   
   if (.file == "household"){ survey = svy[[1]] 
   } else if ( .file == "children") { survey = svy[[2]] 
@@ -170,7 +192,9 @@ svy_histogram = function(.var = "hml32",
     return()
   }
 
-    
+  # add column, 'one', to serve as a counter
+  survey = update(survey, one = 1 )
+  
   sb =svyby( ~ one,
              as.formula(paste("~", tolower(.var))) ,
              survey,
@@ -193,17 +217,17 @@ svy_histogram = function(.var = "hml32",
   # categories/regions and axis label dexcription
   d = dictionary %>% 
     filter( grepl( "member", file, ignore.case = TRUE) , 
-            toupper(Name) == toupper("hv024") ) 
+            toupper(Item_Name) == toupper(.var) ) 
   
-  values = factor(d$value) 
-  label = paste( unique(d$Name), ":" , unique(d$description) )
+  values = factor(d$label) 
+  label = paste( unique(d$Item_Name), ":" , unique(d$Item_Label) )
   
   # plot
   g =  ggplot(data = sb , aes_string( x =  .var ) ) +
     geom_bar( aes(y = counts ), stat = 'identity' ) + 
     # geom_errorbar(aes(ymin = lower, ymax = upper), width = .25) +
     # coord_flip() +
-    ggtitle( paste(.country, .survey_year)) +
+    ggtitle( paste(.country, .survey, .year)) +
     xlab(label)
   
   if ( nchar(.subtitle)>0 ){
@@ -213,8 +237,8 @@ svy_histogram = function(.var = "hml32",
   return(g)
 }
 
-# svy_histogram("hml35")
-# svy_histogram("hml32")
+svy_histogram("hml35")
+svy_histogram("hml32")
 # 
 # svy_histogram("s309")  # number of fansidar: 'ml1', but for Burkina, S307A
 # svy_histogram("s307a")  # took fansidar: 'm49a', but for Burkina, S307A

@@ -2,8 +2,10 @@
 title: "WMR 2016 Access to care"
 author: "jp"
 date: "9/22/2016"
-output: 
-  html_document: 
+output:
+  word_document:
+    toc: yes
+  html_document:
     toc: yes
 ---
 
@@ -17,14 +19,15 @@ library(tidyverse, quietly = TRUE)
 library(countrycode)
 library(survey)
 
-opts_chunk$set( echo = TRUE, cache = TRUE )
+opts_chunk$set( echo = FALSE, cache = TRUE, 
+                fig.width=7.5, fig.height = 5)
 
 
 ```
 
 All available surveys from Sub-Saharan Africa from 2000 to present were downloaded from DHS.  
 
-```{r}
+```{r, fig.width=7.5, out.width=7.5}
 
 source("file_list.r")
 
@@ -69,7 +72,7 @@ source('dhs_variable_selection.R')
 # View(lv)
 
 # select variables for this analysis, v
-v =  c('v000', 
+variables =  c('v000', 
        'v001', 'v002', 'v003', 'v005', 'v021', 'v023', 'v024', 'v025', 
        'weight.c', 'weight.hm', 'weight.w', 'weight.h', 
        'hv001',  'hv002', 'hv003',  'hv005', 'hv007', 'hv021', 'hv023', 'hv024', 'hv025',
@@ -85,7 +88,7 @@ v =  c('v000',
       )
 
 lv = dd %>% mutate( item_name = tolower(Item_Name) ) %>% 
-  filter( item_name %in% v ) %>% # comment this line out to get full list of variables
+  filter( item_name %in% variables ) %>% # comment this line out to get full list of variables
   filter( !grepl( "NA", Item_Label, fixed = TRUE) ) %>%
   group_by( item_name ) %>%
   count( Item_Label ) %>%
@@ -97,10 +100,9 @@ kable(lv, row.names = FALSE)
 ```
 
 
+# create dataset. run one time after updating variables or adding surveys
 
-# create dataset. run one time after updating or adding surveys
-
-```{r, eval=FALSE}
+```{r, include = FALSE, eval= FALSE}
 source("dhs_load_survey.R")
 
 nsurveys = nrow(survey_list)
@@ -125,13 +127,19 @@ for (i in seq_along( index ) ){
   print( paste(.country, .survey, .year))
   
   svy <- try( silent = TRUE,
-    load_survey_object( printout = FALSE, 
-                            vars = v, 
-                            .country = .country, 
-                            .survey_year = .survey_year)
+    load_survey_object( 
+                        # printout = TRUE ,  # un comment when testing
+                        vars = variables, 
+                        .country = .country, 
+                        .survey = .survey,
+                        .year = .year)
   )
+  
+  #TODO FILTER RECORDS--apply filter, like keeping only children with parasitemia, is not unnecessarily large
 
-  if ( class(svy) == "try-error" ){ next()}
+  if ( class(svy) == "try-error" ){ 
+    next()
+    }
 
   # returns: svy.h, svy.c, svy.w, svy.hm, vars_x, x
   # svy.h <- svy[[1]]
@@ -185,55 +193,52 @@ for (i in seq_along( index ) ){
 X = rbindlist(x, fill = TRUE) %>% rownames_to_column("id")
 
 
-# X = as_tibble(X)
+saveRDS(X, "provider.rds")
 
-saveRDS(X, "X.rds")
+```
 
+```{r, eval = FALSE}
+
+X = readRDS(  "provider.rds" )
+
+data_ncountries = length( unique(X$country))
+data_nsurveys = nrow( unique( as.data.frame(X)[, c("country", "survey", "year")] )  )
 nvars = ncol(X)
 rows = nrow(X)
 
-object.size(X)
+cat( "The file includes", data_nsurveys, "surveys from", data_ncountries, "countries with", nvars, "columns, ", rows, "rows and is " , comma(object.size(X)[1]), "bytes")
+
+# list surveys included
+kable( X %>% count( country, survey, year ) %>% arange(-year) , row.names = TRUE)
 ```
 
-# create sqlite db from X.rds: run one time after updating or adding surveys
+# filter to those with fever in last 2 weeks
 
-```{r, eval= FALSE}
+```{r, eval = FALSE}
+# X %>% count(h22) # had fever
+# X %>% filter( h22 %in% 0:1) %>% count(hml16) # age in yrs
 
-library(DBI)
-# devtools::install_github("rstudio/pool")
-library(pool)
+x = X %>% filter( hml16 < 5 , h22 == 1 )
 
+saveRDS( x, "provider_subset.rds")
 
-X = readRDS( "X.rds")
-X_db <- src_sqlite("X.sqlite3", create = T)
-Xsql <- copy_to(X_db, X, temporary = FALSE, indexes = list(c("country", "year", "survey"), "hv023"))
+data_ncountries = length( unique(x$country))
+data_nsurveys = nrow( unique( as.data.frame(x)[, c("country", "survey", "year")] )  )
+nvars = ncol(x)
+rows = nrow(x)
+
+cat( "Subsetting yields", data_nsurveys, "surveys from", data_ncountries, "countries with", nvars, "columns, ", rows, "rows and is " , comma(object.size(x)[1]), "bytes")
 
 ```
 
 
-# Load last dataset created
+# See which surveys are included
 
 ```{r}
 
+x = readRDS("provider_subset.rds")
 
-library(DBI)
-# devtools::install_github("rstudio/pool")
-library(pool)
-
-pool <- dbPool(
-  drv = "SQLite",
-  dbname = "X.sqlite3"
-)
-
-namesX = dbListFields(pool, "X")
-provider_cols <- which( grepl("h32", namesX ) )
-
-dbListTables(pool)
-dbListFields(pool, "X")
-# dbGetQuery(pool, "SELECT * from X LIMIT 5;")  # these two lines do same thing
-src_pool(pool) %>% tbl("X") %>% head()
-
-
+x %>% arrange( -substr(year, 1, 4) ) %>% count( country, survey, year ) %>%  kable( row.names = TRUE)
 ```
 
 # inspect data for unwanted values (e.g. 9 for missing)
@@ -254,6 +259,7 @@ src_pool(pool) %>% tbl("X") %>% head()
 # define provider types
 
 ```{r}
+data_names = names(x)
 
 # 'h32a', 'h32b', 'h32c', 'h32d', 'h32e', 'h32f', 'h32g', 'h32h', 'h32i', 'h32s', #public/govt
 # 'h32j', 'h32k', 'h32l', 'h32m', 'h32n', 'h32o', 'h32p', 'h32q', 'h32r', #private
@@ -261,74 +267,64 @@ src_pool(pool) %>% tbl("X") %>% head()
 # 'h32y', # no medical rx
 # 'h32z' # medical rx.  what's that mean?
 
-provider_public <- which( namesX %in%  c('h32a', 'h32b', 'h32c', 'h32d', 'h32e', 'h32f', 'h32g', 'h32h', 'h32i', 'h32s') )
+provider_public <- which( data_names %in%  c('h32a', 'h32b', 'h32c', 'h32d', 'h32e', 'h32f', 'h32g', 'h32h', 'h32i', 'h32s') )
 
-provider_private <- which( namesX %in%  c('h32j', 'h32k', 'h32l', 'h32m', 'h32n', 'h32o', 'h32p', 'h32q', 'h32r') )
+provider_private <- which( data_names %in%  c('h32j', 'h32k', 'h32l', 'h32m', 'h32n', 'h32o', 'h32p', 'h32q', 'h32r') )
 
-provider_other <- which( namesX %in%  c('h32t', 'h32u', 'h32v', 'h32w', 'h32x') )
+provider_other <- which( data_names %in%  c('h32t', 'h32u', 'h32v', 'h32w', 'h32x') )
 
-provider_none <- which( namesX %in%  c('h32y') )
+provider_none <- which( data_names %in%  c('h32y') )
 
-provider_any <- which( namesX %in%  c('h32z') )
+provider_any <- which( data_names %in%  c('h32z') )
 
 is1 = function(x) x %in% 1
 is01 = function(x) x %in% 0:1
 
 ```
 
-```{r, eval=FALSE}
+```{r}
 
 # in memory version with data.table
-Sys.time()
+# Sys.time()
 
-X = X[ , provider_public1 := rowSums( sapply(.SD, is1) ) >0, .SDcols = colnames(X)[provider_public] ]
-X = X[ , provider_public01 := rowSums( sapply(.SD, is01) ) >0, .SDcols = colnames(X)[provider_public] ]
-X = X[ , provider_public := ifelse( provider_public1 == TRUE, TRUE ,
+x = x[ , provider_public1 := rowSums( sapply(.SD, is1) ) >0, .SDcols = colnames(x)[provider_public] ]
+x = x[ , provider_public01 := rowSums( sapply(.SD, is01) ) >0, .SDcols = colnames(x)[provider_public] ]
+x = x[ , provider_public := ifelse( provider_public1 == TRUE, TRUE ,
                                     ifelse( provider_public01 == TRUE, FALSE, NA)) ]
 
-X = X[ , provider_private1 := rowSums( sapply(.SD, is1)  )>0, .SDcols = colnames(X)[provider_private] ]
-X = X[ , provider_private01 := rowSums( sapply(.SD, is01)  )>0, .SDcols = colnames(X)[provider_private] ]
-X = X[ , provider_private := ifelse( provider_private1 == TRUE, TRUE ,
+x = x[ , provider_private1 := rowSums( sapply(.SD, is1)  )>0, .SDcols = colnames(x)[provider_private] ]
+x = x[ , provider_private01 := rowSums( sapply(.SD, is01)  )>0, .SDcols = colnames(x)[provider_private] ]
+x = x[ , provider_private := ifelse( provider_private1 == TRUE, TRUE ,
                                     ifelse( provider_private01 == TRUE, FALSE, NA)) ]
 
-X = X[ , provider_other1 := rowSums( sapply(.SD, is1)  )>0, .SDcols = colnames(X)[provider_other] ]
-X = X[ , provider_other01 := rowSums( sapply(.SD, is01)  )>0, .SDcols = colnames(X)[provider_other] ]
-X = X[ , provider_other := ifelse( provider_other1 == TRUE, TRUE ,
+x = x[ , provider_other1 := rowSums( sapply(.SD, is1)  )>0, .SDcols = colnames(x)[provider_other] ]
+x = x[ , provider_other01 := rowSums( sapply(.SD, is01)  )>0, .SDcols = colnames(x)[provider_other] ]
+x = x[ , provider_other := ifelse( provider_other1 == TRUE, TRUE ,
                                     ifelse( provider_other01 == TRUE, FALSE, NA)) ]
 
-Sys.time() # approx 1 hr.  Ouch! without sapply, a couple of minutes. 
+# Sys.time() # approx 1 hr. with full dataset, bu only 6 sec with subset  Ouch! without sapply, a couple of minutes. 
 
 
-X = X[ , provider_none := h32y ]
-X = X[ , provider := h32z ]
+x = x[ , provider_none :=  ifelse(h32y == 1, TRUE, ifelse( h32y == 0, FALSE, NA) )]
+
+# x = x[ , provider := ifelse(h32z == 1, TRUE, ifelse( h32z == 0, FALSE, NA) ) ]
+
+x = x %>% select( -provider_public1, -provider_public01, -provider_private1,
+                  -provider_private01, -provider_other1, -provider_other01)
 
 ```
 
-# get provider rates 
+# Create provider rates 
 
 ```{r}
-
-library(DBI)
-# devtools::install_github("rstudio/pool")
-library(pool)
-
-pool <- dbPool(
-  drv = "SQLite",
-  dbname = "X.sqlite3"
-)
-
-namesX = dbListFields(pool, "X")
-providers <- which( grepl("h32", namesX ) )
-
-# db version with dplyr
-Xdb = tbl( src_pool(pool), "X")
 
 # provider rates ####
 
 provider_rate = function(
   provider = "Other",
   provider_cols = provider_other,
-  db = Xdb
+  db = x,
+  namesX = data_names
   ){
   
   cols = c("country", "survey", "year",
@@ -369,38 +365,39 @@ other = provider_rate("other", provider_other )
 private = provider_rate("private", provider_private )
 public = provider_rate("public", provider_public )
 none =  provider_rate("none", provider_none )
-any =  provider_rate("none", provider_any )
+# any =  provider_rate("any", provider_any )
   
-Xdb %>% summarize(n())
-nrow(public); nrow(private); nrow(other)
-
-poolClose(pool)
-
+# x %>% summarize(n())
+# nrow(public); nrow(private); nrow(other)
 
 # Join  ####
 
 provider = bind_rows( public ,private, other, none)
 
-provider[, percent := Y/YN ]
+# provider[, percent := Y/YN ]
+provider = provider %>% mutate(
+  percent = ifelse( YN>0, Y / YN, NA ),
+  yr = as.integer(substr(year, 1, 4)),
+  iso2c = countrycode(country, "country.name", "iso2c")
+)
 
-provider[, yr := as.integer(substr(year, 1, 4))]
-
-provider[, iso2c := countrycode(country, "country.name", "iso2c")]
 
 # Add population < 5  for re-weighting ####
 pop05 = readRDS( "../Populations/pop05_africa.RDS")
-str(pop05)
+# str(pop05)
 
 # join pop estimates
-provider = data.table(
-  inner_join( as.data.frame(provider),  pop05[, c("iso2c", "year", "pop")],
-                   by = c("yr" = "year", "iso2c" = "iso2c"))
-)
+provider = provider %>% as.data.frame %>% 
+  inner_join(pop05[, c("iso2c", "year", "pop")],
+                   by = c("yr" = "year", "iso2c" = "iso2c")
+                   )
 
-# #check totals...there is some issue where thery dont add to 1
-# providerSummary = provider[, .(mean = mean(percent, na.rm = TRUE)), by =
-#                              list(country, survey, year, provider) 
-#                            ] %>%
+#check totals...there is some issue where thery dont add to 1
+# providerSummary = provider %>% 
+#   group_by(country, survey, year, provider) %>%
+#   summarise(
+#     mean = mean(percent, na.rm = TRUE)
+#     ) %>%
 #   spread(provider, mean) %>%
 #   mutate( total = public+private+other+none)
 # 
@@ -408,21 +405,44 @@ provider = data.table(
 
 ```
 
+```{r}
+provider2_strata  = 
+  x %>% 
+  select(country, survey, year, hv023, weight.h, provider_public, provider_private, provider_other, provider_none  ) %>%
+  gather_( "provider", "val", 
+           c("provider_public", "provider_private", "provider_other", "provider_none")
+           ) %>% 
+  group_by(country, survey, year, hv023, provider) %>%
+  summarise(
+    val.TRUE = sum( val %in% TRUE) ,
+    val.FALSE = sum( val %in% FALSE ),
+    val.TOTAL = sum( val %in% c(TRUE, FALSE) )
+  ) %>%
+  inner_join(  # join survey weights
+    x %>% 
+      group_by( country, survey, year, hv023 ) %>% 
+      summarise( 
+        weight = sum( as.numeric( weight.h), na.rm = TRUE ) 
+        )
+  )
 
-```{r, eval=FALSE}
-# dplyr crosstabs
-X %>% group_by(provider, provider_none) %>% tally() %>% spread(provider_none, n)
-X %>% group_by(provider, provider_public) %>% tally() %>% spread(provider_public, n)
-X %>% group_by(provider, provider_private) %>% tally() %>% spread(provider_private, n)
-X %>% group_by(provider_public1, provider_public01) %>% tally() %>% spread(provider_public01, n)
+# View(provider2)
 
-# ages
-X %>% group_by(hml16, provider_public) %>% tally() %>% spread(provider_public, n) %>%
-  mutate(percent_public = `TRUE` / (`TRUE` + `FALSE`) )
+provider2_country = provider2_strata %>%
+  group_by( country, survey, year, provider ) %>%
+  summarise(
+    provider.yes = sum( val.TRUE , na.rm = TRUE) ,
+    provider.total = sum( val.TOTAL , na.rm = TRUE) ,
+    provider_crude_rate = provider.yes / provider.total , 
+    provider_rate = sum( val.TRUE * weight , na.rm = TRUE) /
+      ( sum( weight, na.rm = TRUE) *  sum( val.TOTAL , na.rm = TRUE) )
+  )
+
+# View(provider2_country)
 ```
 
 
-# Visualize raw data
+## Visualize raw data
 
 ```{r}
 
@@ -441,33 +461,34 @@ d =  d %>% group_by(country, survey, yr, provider) %>%
     pop = first(pop) 
   )
 
-# unweighted 
+
+
+```
+
+##  unweighted 
+
+```{r}
+
 ggplot( d, aes( yr, percent, color = provider, group = provider)) + 
   guides(color = guide_legend(reverse = TRUE)) +
   geom_point() +
   geom_smooth( )
 
-# weighted 
+```
+
+## weighted by country population
+
+```{r}
 ggplot( d, aes( yr, percent, color = provider, group = provider)) + 
   guides(color = guide_legend(reverse = TRUE)) +
   geom_point() +
   geom_smooth( aes(weight = pop) )
-
 ```
 
-```{r, cache=FALSE}
+# ggvis version
+
+```{r, eval = FALSE}
 library(ggvis)
-
-d = provider %>% 
-  mutate( yr = as.integer( substr(year, 0 , 4))) 
-
-# group by country
-d =  d %>% group_by(country, survey, yr, provider) %>%
-  filter( YN > 0 ) %>%
-  summarise( 
-    percent =   sum(Y * weight)  / sum(YN * weight ),
-    pop = first(pop) 
-  )
 
 d$id <- 1:nrow(d)
 
@@ -488,8 +509,100 @@ d %>%
 
 ```
 
+# Provider Type among children with fever
 
-# classical model
+## weighted by populations, 2014-2015 (figure 3.9)
+
+```{r}
+
+ggplot( d %>% filter( yr >=2014 ) %>%
+          mutate( provider = factor( provider, 
+                                     levels = c("public", "private", "other", "none"),
+                                     labels = c("Public health\nfacility", "Private health\ncare", "Other health\ncare", "Not seeking care\noutside of home"))
+                  ), 
+        aes( provider, percent)
+        ) + 
+  # guides(color = guide_legend()) +
+  scale_y_continuous("Percentage\n", label = percent )  +
+  scale_x_discrete("\nProvider Type") +
+  geom_boxplot( fill = 'blue', aes( weight = pop)) +
+  theme_bw() +
+  ggtitle( "Figure 3.9 Proportion of febrile children presenting for treatment,\nby health sector, sub-Saharan Africa, 2014-2015")
+```
+
+# blood test (figure 3.10)
+
+```{r}
+# heel/finger stick is h47
+
+x_test = 
+  x %>% 
+  select(country, survey, year, hv023,weight.h, h47, provider_public, provider_private, provider_other, provider_none  ) %>%
+  mutate(
+    stick = ifelse(h47 %in% 1, TRUE, ifelse( h47 %in% 0:1, FALSE, NA)) 
+  ) %>%
+  filter( !is.na(stick) ) %>%
+  gather_( "provider", "val", 
+           c("provider_public", "provider_private", "provider_other", "provider_none")
+           ) %>%
+  filter( val == TRUE ) %>%
+  group_by(country, survey, year, hv023, provider) %>%
+  summarise(
+    stick.TRUE = sum( stick %in% TRUE) ,
+    stick.FALSE = sum( stick %in% FALSE )
+  ) %>%
+  mutate(
+    stick.TRUE = ifelse( is.na(stick.TRUE), 0, stick.TRUE) , 
+    stick.FALSE = ifelse( is.na(stick.FALSE), 0, stick.FALSE) 
+  ) %>%
+  inner_join(  # join survey weights
+    x %>% 
+      group_by( country, survey, year, hv023 ) %>% 
+      summarise( 
+        weight = sum( as.numeric( weight.h), na.rm = TRUE ) 
+        )
+  )
+  
+```
+
+# unweighted, plot of blood test by provider
+
+```{r}
+ggplot( x_test %>% 
+          filter( substr( year, 1, 4)  >= 2014 ) %>%
+          mutate( provider = factor( provider, 
+                                     levels = c("provider_public", "provider_private",
+                                                "provider_other", "provider_none"),
+                                     labels = c("Public health\nfacility", 
+                                                "Private health\ncare", 
+                                                "Other health\ncare", 
+                                                "Not seeking care\noutside of home")
+                                     )
+          ) %>% 
+          group_by( country, survey, year, provider) %>%
+          summarise(
+            test_rate_crude = sum(stick.TRUE, na.rm = TRUE) / 
+                    ( sum(stick.TRUE) + sum(stick.FALSE) )  ,
+            
+            
+                  test_rate = sum(stick.TRUE * weight, na.rm = TRUE) / 
+                    ( ( sum(stick.TRUE) + sum(stick.FALSE) )  * sum(weight, na.rm = TRUE) ) 
+                  ) %>%
+          filter( !(provider %in% "Not seeking care\noutside of home") ), 
+        aes( provider, test_rate_crude)
+        ) + 
+  # guides(color = guide_legend()) +
+  scale_y_continuous("Percentage\n", label = percent )  +
+  scale_x_discrete("\nProvider Type", drop = TRUE) +
+  geom_boxplot( fill = 'blue') +
+  theme_bw() +
+  ggtitle( "Figure 3.10 Proportion of febrile children receiving a blood test,\nby health sector, sub-Saharan Africa, 2014-2015")
+```
+
+
+# Models
+
+## Classical
 
 ```{r, eval=FALSE}
 

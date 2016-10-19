@@ -1,14 +1,4 @@
-# Ignore everything
-*
-
-# But not these files...
-!.gitignore
-!*.r
-!*.R
-!*.md
-!*.Rmd
-# etc...
-
-# ...even if they are in subdirectories
-!*/
 .Rproj.user
+.Rhistory
+.RData
+.Ruserdata
