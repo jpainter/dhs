@@ -1,0 +1,924 @@
+---
+title: "wmr_2016_rx"
+author: "jp"
+date: "10/25/2016"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = FALSE, cache = TRUE)
+```
+
+```{r, include = FALSE}
+library(data.table)
+library(tidyverse)
+library(stringr)
+library(scales)
+library(survey)
+library(gridExtra)
+library(countrycode)
+library(readr)
+library(readxl)
+library(survey)  
+options(survey.lonely.psu="adjust")
+options(survey.adjust.domain.lonely=TRUE)
+```
+
+# Main data 
+
+```{r,  include = FALSE}
+
+source("file_list.r")
+
+subsahara = countrycode_data %>%
+  filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
+  select( country.name, iso3c ) %>%
+  filter( !country.name %in% "Lesotho") 
+
+
+files = files %>% 
+  mutate( country.name = countrycode(country, "country.name", "country.name")) %>%
+  filter( survey!="", year >= 2006 , country.name %in% subsahara$country.name)
+
+# not_needed = c('Bangladesh', 'Pakistan', 'Philippines', 'Comoros')
+
+survey_list = files %>% count(country, survey, year) %>% select(-n) %>% arrange(desc(year))
+
+nsurveys = nrow(survey_list)
+ncountries = length( unique( files$country ) )
+
+kable(survey_list, row.names = TRUE)
+
+```
+
+```{r, include = FALSE, eval= FALSE}
+# select variables for this analysis, v
+variables =  c('v000', 
+       'v001', 'v002', 'v003', 'v005', 'v021', 'v023', 'v024', 'v025', 
+       'weight.c', 'weight.hm', 'weight.w', 'weight.h', 
+       'hv001',  'hv002', 'hv003',  'hv005', 'hv007', 'hv021', 'hv022', 'hv023', 'hv024', 'hv025',
+       'hvidx', 'b16',
+       'h22', 'hv105', 'h47', 
+       'hml16', # age in years
+       'hml32', 'hml35',
+      'h32a', 'h32b', 'h32c', 'h32d', 'h32e', 'h32f', 'h32g', 'h32h', 'h32i', 'h32s', #public/govt
+      'h32j', 'h32k', 'h32l', 'h32m', 'h32n', 'h32o', 'h32p', 'h32q', 'h32r', #private
+      'h32t', 'h32u', 'h32v', 'h32w', 'h32x', # informal privage/other
+      'h32y', # no medical rx
+      'h32z', # medical rx.  what's that mean?
+      
+      # DRUGS
+      'h37a', 'h37b', 'h37c', 'h37d', 'h37e', 'h37f', 'h37g', 'h37h', 'h37i', 'h37s', #public/govt
+      'h37j', 'h37k', 'h37l', 'h37m', 'h37n', 'h37o', 'h37p', 'h37q', 'h37r', #private
+      'h37t', 'h37u', 'h37v', 'h37w', 'h37x', # informal privage/other
+      'h37y', # no medical rx
+      'h37z',
+
+      'ml13a', 'ml13b', 'ml13c', 'ml13d', 'ml13e', 'ml13f', 'ml13g', 'ml13h', 'ml13i', 'ml13s', #public/govt
+      'ml13j', 'ml13k', 'ml13l', 'ml13m', 'ml13n', 'ml13o', 'ml13p', 'ml13q', 'ml13r', #private
+      'ml13t', 'ml13u', 'ml13v', 'ml13w', 'ml13x', # informal privage/other
+      'ml13y', # no medical rx
+      'ml13z'
+      )
+
+```
+
+```{r, include = FALSE, eval= FALSE}
+source("dhs_load_survey.R")
+
+nsurveys = nrow(survey_list)
+
+survey_list = survey_list %>% arrange( desc(year) )
+index = row.names(survey_list)
+
+p <- progress_estimated(nsurveys)
+
+x <- vector("list", length( nsurveys)) 
+
+translate = FALSE  # optional translation of values to label.  
+  # NB: Does not work well for all variables
+
+for (i in seq_along( index ) ){
+  
+   p$pause(0.1)$tick()$print()
+  
+  .country = survey_list[i, ]$country
+  .iso3c = countrycode( survey_list[i, ]$country, "country.name", "iso3c")
+  .survey = survey_list[i, ]$survey
+  .year = survey_list[i, ]$year
+  .survey_year = paste(.survey, .year)
+
+  print( paste(.country, .survey, .year))
+  
+  svy <- try( silent = TRUE,
+    load_survey_object( design = FALSE,
+                        # printout = TRUE ,  # un comment when testing
+                        vars = variables, 
+                        .country = .country, 
+                        .survey = .survey,
+                        .year = .year)
+  )
+  
+  #TODO FILTER RECORDS--apply filter, like keeping only children with parasitemia, is not unnecessarily large
+
+  if ( class(svy) == "try-error" ){ 
+    next()
+    }
+
+  # returns: svy.h, svy.c, svy.w, svy.hm, vars_x, x
+  # svy.h <- svy[[1]]
+  # svy.c <- svy[[2]]
+  # svy.w <- svy[[3]]
+  # svy.hm <- svy[[4]]
+  has_vars = svy[[5]]
+  x[[i]] = svy[[6]] 
+  
+  x[[i]]$country = rep( .country, nrow(x[[i]]) )
+  x[[i]]$iso3c = rep( .iso3c, nrow(x[[i]]) )
+  x[[i]]$year = rep( .year, nrow(x[[i]]) )
+  x[[i]]$survey = rep( .survey, nrow(x[[i]]) )
+
+  # TODO: optional- relate dictionary to survey                    )
+
+  # # TODO: only for columns with >4 values (others easier to keep as numeric)
+  # # Deriving this table should happen once, before loop
+  # v = dd %>% filter( tolower(Item_Name) %in% variables) %>% group_by( Item_Name, label ) %>% 
+  #   summarise( n = n()) %>% group_by( Item_Name) %>% count(Item_Name) %>% filter(nn>4) 
+
+  if (translate){
+    
+      # refine dictionary for this country-survey 
+      dict = dd %>% filter_( ~country == .country , ~survey == .survey, ~year == .year,
+                        ~Item_Name %in% toupper(names(has_vars))
+      )
+     
+    y = x[[i]]
+  
+    for (col in 1:length(colnames(y))){
+      column = tolower( colnames(y)[col] )
+      
+      dict_var = dict %>% 
+        mutate( item_name = tolower(Item_Name)) %>%
+        filter_( ~item_name == column ) %>% # , ~file == "Household Member Recode"
+        count( value, label) %>% select(-n)
+      
+      old_value = y[, col]
+      new_value = dict_var[ match( old_value, dict_var$value ), ]$label
+      y[, col] = ifelse( is.na( new_value), old_value, new_value)
+    }
+      x[[i]] = y
+}
+
+  # if (is.null(X) ){ X <- x; next()}
+  # X = rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
+  
+}
+  
+# X = dplyr:: bind_rows( x )  # will throw error is column types dont match 
+X = rbindlist(x, fill = TRUE) %>% rownames_to_column("id")
+
+saveRDS(X, "provider_rx.rds")
+
+# object.size(X)
+
+```
+
+```{r}
+x = readRDS("provider_rx.rds")
+```
+
+## subset to available surveys from 2006 to 2016: 
+
+```{r}
+
+subsahara = countrycode_data %>%
+  filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
+  select( country.name, iso3c ) %>%
+  filter( !country.name %in% "Lesotho") 
+
+x = x %>% 
+  mutate( startyear = as.integer( substr( year, 1, 4 ) ),
+            endyear = as.integer(
+              ifelse( nchar(year)>4, 
+                              paste0("20", substr( year, 6, 7 )), 
+                              substr( year, 1, 4 ))
+            )
+            ) %>%
+  filter( endyear >= 2006, 
+          iso3c %in% subsahara$iso3c ,
+          !is.na(weight.c)   # only those with weight 
+          ) %>% 
+  as.data.table()
+
+x.list = x %>% count( country, survey, year ) %>% arrange(desc(year) )
+
+kable( x.list %>% select(-n) , row.names = TRUE)
+
+
+```
+
+## data dictionary
+
+```{r, message=FALSE, warning=FALSE, include = FALSE}
+# get dictionary vales from children's file
+
+  dd <-readRDS("dictionaryNew.rds")  # about 6 sec
+
+#Which files have treatment variables h37 and ml13?  both in children's file
+# count( filter(dd, grepl( "H37|ML13", Item_Name )), file)
+
+  ddrx = dd %>% ungroup %>%
+    filter( grepl( "Children", file ) | grepl( "kr", file )
+            ) %>%
+    mutate(
+      startyear = as.integer( substr( year, 1, 4 ) ) ,
+      endyear = as.integer(
+              ifelse( nchar(year)>4, 
+                              paste0("20", substr( year, 6, 7 )), 
+                              substr( year, 1, 4 ))
+            ),
+      Item_Label = tolower( Item_Label ) ,
+      Item_Name = tolower( Item_Name)
+    ) %>%
+    filter( endyear >= 2006 ) %>% 
+    count( country, survey, startyear, Item_Name, Item_Label) %>% 
+    filter( grepl( "h37|ml13", Item_Name ) )  %>% ungroup
+
+  kable( ddrx %>% count( country, survey, startyear ) %>% arrange(desc(startyear)) %>% select(-nn), row.names = TRUE)
+
+```
+
+## lookup health providers and add columns for care_levels
+
+```{r}
+  # lookup care_levels for each  provider
+  csb_mapped_2016 <- read_excel("~/Dropbox/_Malaria/Projects/WMR/csb_mapped_october24_2016.xlsx")
+
+  csb_levels = read_excel("~/Dropbox/_Malaria/Projects/WMR/care_levels.xlsx") %>% as.data.frame()
+  
+  csb_map = csb_mapped_2016 %>%
+    group_by( iso3, startyear, varname ) %>%
+    summarise( care_level = max(care_level, na.rm = TRUE))
+  
+```
+
+```{r}
+
+# selet needed columns from dataset
+xcsb = x %>%
+    select( country, iso3c, startyear, year, survey, hv021, hv023, weight.c, h47,
+            starts_with("h32"),
+            starts_with("h37"), starts_with("ml13")
+            ) %>%
+    mutate( id = row_number() )  %>%
+    ungroup
+ 
+#  # kable( xp %>% count( country, survey, year ) %>% arrange(desc(year) ) , row.names = TRUE)
+
+## transform dataset to long format by provider , then by drug
+xcsbl = xcsb  %>% 
+  
+    gather(provider, provider_value, -country, -iso3c, -startyear, -year, -survey, 
+           -hv021, -hv023, -weight.c, -h47, -id, -starts_with("h37"), -starts_with("ml13") ) %>%
+    filter( !(provider %in% 'h32z'), 
+              !is.na(provider_value) 
+            ) %>%  # remove all the 'z' , generic had medical 
+    mutate( provider = tolower(provider)
+            )
+
+# NB: because the h32z variable, 'medical treatment', is coded in survey as summary when any 
+# of the the providers are chosen, we don't want to count it as a type of provider.  It just means 
+# a provider was selected.  But the csb file maps these to 'other', which result in double counting.
+# So--the column h32z is now removed in an earlier step ( see creation of xl dataset, above).  
+# Note that h32y, 'no treatment' is still included.  
+  
+
+# translate dhs provider categories to csb types 
+  ## replace values of 9 with NA
+  
+  xcsbl$care_level = as.integer( csb_map[ match( 
+    paste(xcsbl$iso3c, xcsbl$startyear, xcsbl$provider), 
+    paste(csb_map$iso3, csb_map$startyear, csb_map$varname) 
+    ),]$care_level )
+      
+# set grouping variables that includes long list of drug variables
+  
+drug.col.names = names(x)[ names(x) %>% str_sub(1,3) == "h37" | names(x) %>% str_sub(1,4) == "ml13" ]
+drug.col.names.dots <- sapply(drug.col.names, as.symbol)
+
+base.cols = c("country", "iso3c", "survey", "startyear", "endyear", "id", "hv021",  "hv023", "weight.c", "h47")
+base.cols.dots =  sapply( base.cols, as.symbol)
+  
+# collapse by csb type   
+x.csb.l = xcsbl %>% 
+    mutate( startyear = as.integer( substr( year, 1, 4 ) ),
+            endyear = as.integer(
+                        ifelse( nchar(year)>4, 
+                              paste0("20", substr( year, 6, 7 )), 
+                              substr( year, 1, 4 ) )
+                        ),
+              # replace 9 with NA, convert to int
+              provider_value = ifelse( provider_value %in% 9, NA, provider_value )  
+    ) %>%
+    group_by_(
+              .dots = c( base.cols.dots, drug.col.names.dots )  ,
+              ~care_level
+              ) %>%
+    summarise( provider_value = max( provider_value, na.rm = TRUE ) ) %>% ungroup()
+  
+### define grouping levels  
+x.csb.l$care_level6 = csb_levels[ match(x.csb.l$care_level, csb_levels$care_level), "care_level_6"]
+x.csb.l$care_level5 = csb_levels[ match(x.csb.l$care_level, csb_levels$care_level), "care_level_5"]
+x.csb.l$care_level4 = csb_levels[ match(x.csb.l$care_level, csb_levels$care_level), "care_level_4"]
+x.csb.l$care_level3 = csb_levels[ match(x.csb.l$care_level, csb_levels$care_level), "care_level_3"]
+x.csb.l$care_level3b = csb_levels[ match(x.csb.l$care_level, csb_levels$care_level), "care_level_3b"]
+
+## transform back to wide format with provider 3b
+  x.csb.3b = x.csb.l %>% 
+  group_by_(
+              .dots = c( base.cols.dots, drug.col.names.dots )  ,
+              ~care_level3b
+              ) %>%
+  summarise( provider_value = max( provider_value, na.rm = TRUE ) ) %>% ungroup() %>%
+  spread( care_level3b, provider_value) 
+    
+  # View(x.csb.3b)
+```
+
+
+
+## lookup drugs and add columns for drug_class
+
+```{r}
+
+
+rx_2016 <- read_excel("~/Dropbox/_Malaria/Projects/WMR/Drugs lookup 2016.xlsx")
+
+rx_levels = read_excel("~/Dropbox/_Malaria/Projects/WMR/Drugs lookup 2016.xlsx", sheet = 3) 
+ 
+rx_classes = read_excel("~/Dropbox/_Malaria/Projects/WMR/Drugs lookup 2016.xlsx", sheet = 2) 
+```
+
+
+```{r, eval= FALSE}
+
+## transform dataset to long format by provider , then by drug
+xrxl = x.csb.3b  %>% ungroup() %>%
+    gather(drug, drug_value, -country, -iso3c, -startyear, -endyear, -survey, 
+           -hv021, -hv023, -weight.c, -h47, -id, -HMIS, -`Non-HMIS`, -`No Treatment`) 
+
+
+# translate dhs drug categories to drug classes 
+  ## replace values of 9 with NA
+  
+  xrxl$Drug1 = as.integer( 
+    rx_2016[ match( 
+      paste(xrxl$iso3c, xrxl$startyear, xrxl$drug), 
+      paste(rx_2016$iso3, rx_2016$startyear, rx_2016$varname) 
+    ), ]$Drug1 
+    )
+      
+# set grouping variables that includes long list of drug variables
+
+provider.cols = c( "HMIS", "Non-HMIS", "No Treatment")
+provider.cols.dots =  sapply( provider.cols, as.symbol)
+  
+# collapse by csb type   
+x.drug.l = xrxl %>% 
+    mutate( 
+              # replace 9 with NA, convert to int
+              drug_value = ifelse( drug_value %in% 9, NA, drug_value )  
+    ) %>%
+    group_by_(
+              .dots = c( base.cols.dots, provider.cols.dots )  ,
+              ~Drug1
+              ) %>%
+    summarise( drug_value = max( drug_value, na.rm = TRUE ) )  %>%
+    ungroup
+  
+### define grouping levels  
+x.drug.l$Class1 = unlist( rx_levels[ match(x.drug.l$Drug1, rx_levels$Drug1), "Class1"] )
+x.drug.l$ClassAM = unlist( rx_levels[ match(x.drug.l$Drug1, rx_levels$Drug1), "ClassAM"] )
+
+## transform back to wide format with provider 3b
+  x.AM.3b = x.drug.l %>% 
+  group_by_(
+              .dots = c( base.cols.dots, provider.cols.dots )  ,
+              ~ClassAM
+              ) %>%
+  summarise( drug_value = max( drug_value, na.rm = TRUE ) ) %>% 
+  ungroup() %>%
+  spread( ClassAM, drug_value ) 
+    
+  # View(x.AM.3b)
+```
+
+
+# function to return dataset for a given provider classification
+
+```{r}
+
+x.csb.drug = function( care_level = "care_level3b" ){ 
+  
+  # set grouping variables that includes long list of drug variables
+  drug.col.names = names(x)[ names(x) %>% str_sub(1,3) == "h37" | names(x) %>% str_sub(1,4) == "ml13" ]
+  drug.col.names.dots <- sapply(drug.col.names, as.symbol)
+
+
+  x.csb. = x.csb.l %>% 
+    group_by_(
+                .dots = c( base.cols.dots, drug.col.names.dots )  ,
+                care_level
+                ) %>%
+    summarise( provider_value = max( provider_value, na.rm = TRUE ) ) %>% ungroup() %>%
+    spread_( care_level , "provider_value") 
+    
+
+  
+## transform dataset to long format by drug
+xrxl = x.csb.  %>% ungroup() %>%
+    gather_( "drug", "drug_value", gather_cols = drug.col.names )
+
+
+# translate dhs drug categories to drug classes 
+  ## replace values of 9 with NA
+  
+  xrxl$Drug1 = as.integer( 
+    rx_2016[ match( 
+      paste(xrxl$iso3c, xrxl$startyear, xrxl$drug), 
+      paste(rx_2016$iso3, rx_2016$startyear, rx_2016$varname) 
+    ), ]$Drug1 
+    )
+  
+  csb_cols = c( "HMIS", "Non-HMIS", "No Treatment", 
+                 "Public", "CHW", "Charity", 
+               "Formal Private", "Informal Private")
+  
+  csb.cols.dots = sapply( 
+    csb_cols[ grepl( paste( names(xrxl) , collapse = "|") , csb_cols  ) ], as.symbol )
+  
+# collapse by csb type   
+x.drug.l = xrxl %>% 
+    mutate( 
+              # replace 9 with NA, convert to int
+              drug_value = ifelse( drug_value %in% 9, NA, drug_value )  
+    ) %>%
+    group_by_(
+              .dots = c( base.cols.dots, csb.cols.dots )  ,
+              ~Drug1
+              ) %>%
+    summarise( drug_value = max( drug_value, na.rm = TRUE ) )  %>%
+    ungroup
+  
+### define grouping levels  
+x.drug.l$Class1 = unlist( rx_levels[ match(x.drug.l$Drug1, rx_levels$Drug1), "Class1"] )
+x.drug.l$ClassAM = unlist( rx_levels[ match(x.drug.l$Drug1, rx_levels$Drug1), "ClassAM"] )
+
+## transform back to wide format with provider 3b
+  x.AM.provider = x.drug.l %>% 
+    group_by_(
+                .dots = c( base.cols.dots, csb.cols.dots )  ,
+                ~ClassAM
+                ) %>%
+    summarise( drug_value = max( drug_value, na.rm = TRUE ) ) %>% 
+    ungroup() %>%
+    spread( ClassAM, drug_value ) 
+      
+  # View(x.AM.provider)
+
+return( x.AM.provider )
+}
+
+# x.AM.3b = x.csb.drug()
+
+```
+
+### Data checks-- find rows with missing care_level--and updateing csb excel files
+```{r, eval=FALSE}
+    
+  
+    # look at un-joined....
+  xxx = xld %>% filter( is.na(care_level)) %>% count( country, survey, year)
+  
+  # remove rows with mising labels
+  xld. = xld %>% filter( !is.na(Item_Label))
+
+  table(  xld.$care_level, useNA = 'always')
+
+  xld.m = xld. %>%
+    filter( is.na( care_level)) %>%
+    rename( iso3 = iso3c,
+            varname = provider,
+            varlab = Item_Label,
+            filename = survey) %>%
+    mutate( startyear = as.integer( substr( year, 1, 4 ) ),
+            endyear = as.integer(
+              ifelse( nchar(year)>4,
+                              paste0("20", substr( year, 6, 7 )),
+                              substr( year, 1, 4 ))
+            )
+            ) %>%
+  count( iso3, startyear, endyear, filename, varname, varlab)
+
+  # View( xld.m )
+  
+  # Add the missing labels back to the csb_mapped file (then comment out lines so not re-run) #
+    # 1.
+    # add_csb_mapped = xld.m %>%  ungroup %>%
+    #   select(iso3, startyear, endyear, filename, varname, varlab)
+    #
+    # csb_mapped_2016 = bind_rows( csb_mapped_2016, add_csb_mapped)
+    # write_excel_csv(csb_mapped_2016, "~/Dropbox/_Malaria/Projects/WMR/csb_mapped_2016.csv")
+
+    # 2. go to excel/csv file and classify the care_levels to be consistent with previous categorizations
+    # 3. re-make csb_mapped, line 52, and re-run to here
+    
+```
+
+
+### (run once after loading new data) 
+```{r, eval=FALSE}
+
+# how many kids sought care at more than one type of provider
+care_cols = c("CHW", "Public", "Formal Private", "Informal Private") 
+
+x.provider.5 = x.provider.l %>%  
+  group_by( iso3c, survey, startyear, endyear, id, hv021, hv023, weight.c, h47, care_level5) %>%
+  summarise( value = max( value, na.rm = TRUE ) ) %>% ungroup() %>%
+  spread( care_level5, value)   # return to one record per person
+
+x.provider.5 = data.table(x.provider.5)
+x.provider.5 = x.provider.5[ , nprovider := rowSums( .SD , na.rm = TRUE), .SDcols = care_cols]                           
+
+count(x.provider.5, nprovider)  # only 444 /(8281+14425+436+8), 1.9%, had>1 provider type
+
+z = xl %>% group_by(id) %>%
+  summarise( sz = sum( ifelse( provider %in% 'h32z', as.integer(value), 0 ) ) ,
+             sy = sum( ifelse( provider %in% 'h32y', as.integer(value), 0 ) ) ,
+             so = sum( ifelse( provider %in% c('h32z','h32y'), 0, as.integer(value) ), na.rm = TRUE )
+             )
+
+sum( z$sy == 1 & z$so>0 )  # is there ever a provider selected (so>0) and 'no provider'?  0
+
+sum( z$so == 0 & z$sz>0 , na.rm=TRUE) # is there ever any provider selected (sz>0) and no specific provider (so==0)?  0
+
+sum( z$so>0 & z$sz>0 , na.rm=TRUE) ; sum( z$so>0); sum( z$sz>0, na.rm = TRUE)
+```
+
+
+
+
+# Estimates
+
+## ACT rates by provider
+
+  
+```{r, include=FALSE}
+
+  data = x.csb.drug( care_level = "care_level6" ) %>% 
+  mutate( 
+    h47 = ifelse(h47 %in% 8:9, NA, h47),
+    anyAM = ACT + NonAM , # any antimalarial
+    pctACT = ACT / anyAM 
+  )
+ 
+  estimates_ACT = NULL
+  
+  csb_cols = c( "HMIS", "Non-HMIS", "No Treatment", 
+                 "Public", "CHW", "Charity", 
+               "Formal Private", "Informal Private")
+  
+  csb.cols.dots = sapply( csb_cols[ grepl( paste( names(data) , collapse = "|") , csb_cols  ) ], as.symbol )
+
+  options(survey.lonely.psu="adjust")
+  options(survey.adjust.domain.lonely=TRUE)
+
+  for ( .var in csb_cols ){
+    estimates = list()
+    
+  for ( i in seq_along( rownames(x.list)  )){
+  
+    .country = x.list$country[i]
+    .iso3c = countrycode( .country, "country.name", "iso3c")
+    .survey = x.list$survey[i]
+    .year = x.list$year[i]
+    .startyear = as.integer( substr( x.list$year[i], 1, 4) )
+    .endyear = as.integer(
+                          ifelse( nchar(x.list$year[i])>4, 
+                                paste0("20", substr( x.list$year[i], 6, 7 )), 
+                                substr( x.list$year[i], 1, 4 ) )
+                          )
+    .survey_year =  paste(.survey, .year)
+  
+    cat( .country, .survey, .year, "\n") 
+    
+    xx = data %>% 
+      filter( iso3c %in% .iso3c ,
+              survey %in% .survey , 
+              startyear %in% .startyear ,
+             !is.na(hv021)  # survey design object, below, requires non missing value for psu (hv021)
+             )  %>%
+      select_( "iso3c", "startyear", "endyear",   "survey", "hv021", "hv023", "weight.c", "h47", 
+               .dots =  csb.cols.dots,
+               "pctACT" )  %>%
+      ungroup
+    
+    # if no survey, or no values, move on
+    if ( nrow(xx) == 0) next 
+    if ( !(.var %in% names(xx) ) ) next
+    if ( sum(is.na( xx[, .var])) == nrow(xx) ) next 
+    if ( sum(is.na( xx[, "pctACT"])) == nrow(xx) ) next 
+    
+    
+    # Survey design object 
+      
+    cat( unique( with(xx, paste(iso3c, survey, startyear, .var)) ), "\n" )
+      
+      # test if strata exists; some surveys have no strata (e.g. madagascar mis 2011)
+      has.strata.023 = nrow( as.data.frame.table( table(xx$hv023) ) ) > 1
+  
+      if (has.strata.023) { # urban/rural
+        strataformula.c = as.formula("~hv023 ")
+      } else {
+          strataformula.c = NULL
+      }
+      
+      svy.x.c  <- 
+                svydesign( 
+                  ~hv021  , # psu 
+                  strata = strataformula.c , 
+                  data =  xx, 
+                  weights = ~ weight.c
+                )  
+    
+    # survey eSTIMATES   
+
+      if ( .var == "HMIS") subset.design = subset(svy.x.c, HMIS == 1 ) 
+      if ( .var == "No Treatment") subset.design = subset(svy.x.c, `No Treatment` == 1 ) 
+      if ( .var == "Non-HMIS") subset.design = subset(svy.x.c, `Non-HMIS` == 1 ) 
+      if ( .var == "Public") subset.design = subset(svy.x.c, Public == 1 ) 
+      if ( .var == "CHW") subset.design = subset(svy.x.c, CHW == 1 ) 
+      if ( .var == "Charity") subset.design = subset(svy.x.c, Charity == 1 ) 
+      if ( .var == "Formal Private") subset.design = subset(svy.x.c, `Formal Private` == 1 ) 
+      if ( .var == "Informal Private") subset.design = subset(svy.x.c, `Informal Private` == 1 ) 
+       
+      # test is subset has values
+      if ( nrow(subset.design) == 0 ) next 
+      if ( sum(is.na( subset.design$variables$pctACT)) == nrow(subset.design) ) next 
+    
+     # convert svyciprop to df
+      # p = svyciprop( as.formula( paste0("~`",.var, "`") ), svy.x.c, method="lo")
+      p = svyciprop( ~pctACT, subset.design, method="lo")
+      
+      pp = cbind( as.numeric(p), as.data.frame( t(attributes(p)$ci) ) )
+      names(pp)[1] = "Est."
+      pp$var = names(p)
+      cat( paste( pp, collapse = " ") , "\n")
+      
+      estimates[[i]] = bind_cols(  data_frame( country = .country,
+                                               iso3 = .iso3c,
+                                               startyear = .startyear,
+                                               endyear = .endyear,
+                                               survey = .survey,
+                                               provider = .var
+                                               ) ,
+                                   pp
+      )
+    
+    }
+    
+  estimates_var = rbindlist(estimates, fill = TRUE) %>% rownames_to_column("id")
+  
+  if ( is.null(estimates_ACT) ){
+    estimates_ACT = estimates_var
+    } else {
+      estimates_ACT = bind_rows( estimates_var , estimates_ACT)
+  }
+  
+  }
+  
+saveRDS( estimates_ACT, "x.AM.6.rds")
+  
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+
+estimates_ACT = readRDS("x.AM.6.rds")
+
+    data = estimates_ACT %>% 
+    rename( percent = Est. ) %>%
+    filter( endyear>2013) %>% 
+    mutate( provider = factor( provider, 
+                                     levels = c( "Public", "CHW", "Charity", 
+                                                 "Formal Private", "Informal Private", 
+                                                 "No Treatment", 
+                                                 "HMIS", "Non-HMIS") ,
+                                     labels = c( "Public health\nfacility", 
+                                                 "Community health\nworker",
+                                                 "Non-profit health\ncare", 
+                                                 "Formal private\nhealth care", 
+                                                "Inormal private\nhealth care",
+                                                "Not seeking care\noutside of home",
+                                                "Public health\nfacility",
+                                                "private\nhealth care" )
+                               )
+                  )
+  
+  ylabel =  "Proportion of febrile children given an antimalarial drug"
+  
+  fig.3.10.6 = ggplot( data , 
+        aes( provider, percent)
+        ) + 
+  # guides(color = guide_legend()) +
+  scale_y_continuous( ylabel , label = percent, limits = c(0, 1) )  +
+  scale_x_discrete("") +
+  stat_boxplot(geom ='errorbar', width = .1, size = .2) + 
+  geom_boxplot( fill = 'light blue', size= .2, outlier.color = 'white', width = .5) +
+  theme_bw() +
+  theme( axis.text = element_text(size=8) ,
+         axis.title = element_text(size=8, hjust = .5, face = 'plain'),
+         title  = element_text(size=9, face = 'bold', hjust = 0))
+  
+  cat( "Figure 3.XIb Proportion of children who recieve an ACT\namong those who receive any antimalarial, by place where care was sought,\nsub-Saharan Africa, 2014-2015")
+  
+  fig.3.10.6
+  
+  # ggsave( "Figure 3.10.6categories.pdf")
+  
+  # View(data)
+  write_excel_csv(data, "percent ACT by provider.csv" )
+  
+  cat( "Data file location: ", "percent ACT by provider.csv")
+ 
+```
+
+
+## ACT Trend
+  
+```{r, include=FALSE}
+
+  data = x.csb.drug( care_level = "care_level3b" ) %>% 
+  mutate( 
+    h47 = ifelse(h47 %in% 8:9, NA, h47),
+    anyAM = ACT + NonAM , # any antimalarial
+    pctACT = ACT / anyAM 
+  )
+ 
+  estimates_ACT_3b = NULL
+  care_cols = c( "HMIS", "Non-HMIS", "No Treatment")
+ 
+  options(survey.lonely.psu="adjust")
+  options(survey.adjust.domain.lonely=TRUE)
+
+  for ( .var in care_cols ){
+    estimates = list()
+    
+  for ( i in seq_along( rownames(x.list)  )){
+  
+    .country = x.list$country[i]
+    .iso3c = countrycode( .country, "country.name", "iso3c")
+    .survey = x.list$survey[i]
+    .year = x.list$year[i]
+    .startyear = as.integer( substr( x.list$year[i], 1, 4) )
+    .endyear = as.integer(
+                          ifelse( nchar(x.list$year[i])>4, 
+                                paste0("20", substr( x.list$year[i], 6, 7 )), 
+                                substr( x.list$year[i], 1, 4 ) )
+                          )
+    .survey_year =  paste(.survey, .year)
+  
+    cat( .country, .survey, .year, "\n") 
+    
+    xx = data %>% 
+      filter( iso3c %in% .iso3c ,
+              survey %in% .survey , 
+              startyear %in% .startyear ,
+             !is.na(hv021)  # survey design object, below, requires non missing value for psu (hv021)
+             )  %>%
+      select_( "iso3c", "startyear", "endyear",   "survey", "hv021", "hv023", "weight.c", "h47", 
+               .dots =  c( "HMIS", "`Non-HMIS`", "`No Treatment`"),
+               "pctACT" )  %>%
+      ungroup
+    
+    # if no survey, or no values, move on
+    if ( nrow(xx) == 0) next 
+    if ( sum(is.na( xx[, .var])) == nrow(xx) ) next 
+    if ( sum(is.na( xx[, "pctACT"])) == nrow(xx) ) next 
+    
+    
+    # Survey design object 
+      
+    cat( unique( with(xx, paste(iso3c, survey, startyear, .var)) ), "\n" )
+      
+      # test if strata exists; some surveys have no strata (e.g. madagascar mis 2011)
+      has.strata.023 = nrow( as.data.frame.table( table(xx$hv023) ) ) > 1
+  
+      if (has.strata.023) { # urban/rural
+        strataformula.c = as.formula("~hv023 ")
+      } else {
+          strataformula.c = NULL
+      }
+      
+      svy.x.c  <- 
+                svydesign( 
+                  ~hv021  , # psu 
+                  strata = strataformula.c , 
+                  data =  xx, 
+                  weights = ~ weight.c
+                )  
+    
+    # survey eSTIMATES   
+
+      if ( .var == "HMIS") subset.design = subset(svy.x.c, HMIS == 1 ) 
+      if ( .var == "No Treatment") subset.design = subset(svy.x.c, `No Treatment` == 1 ) 
+      if ( .var == "Non-HMIS") subset.design = subset(svy.x.c, `Non-HMIS` == 1 ) 
+        
+      # test is subset has values
+      if ( nrow(subset.design) == 0 ) next 
+      if ( sum(is.na( subset.design$variables$h47)) == nrow(subset.design) ) next 
+    
+     # convert svyciprop to df
+      # p = svyciprop( as.formula( paste0("~`",.var, "`") ), svy.x.c, method="lo")
+      p = svyciprop( ~pctACT, subset.design, method="lo")
+      
+      pp = cbind( as.numeric(p), as.data.frame( t(attributes(p)$ci) ) )
+      names(pp)[1] = "Est."
+      pp$var = names(p)
+      cat( paste( pp, collapse = " ") , "\n")
+      
+      estimates[[i]] = bind_cols(  data_frame( country = .country,
+                                               iso3 = .iso3c,
+                                               startyear = .startyear,
+                                               endyear = .endyear,
+                                               survey = .survey,
+                                               provider = .var
+                                               ) ,
+                                   pp
+      )
+    
+    }
+    
+  estimates_var = rbindlist(estimates, fill = TRUE) %>% rownames_to_column("id")
+  
+  if ( is.null(estimates_ACT_3b) ){
+    estimates_ACT_3b = estimates_var
+    } else {
+      estimates_ACT_3b = bind_rows( estimates_var , estimates_ACT_3b)
+  }
+  
+  }
+  
+  data = estimates_ACT_3b %>% 
+    rename( percent = Est. ) %>%
+    mutate( provider = factor( provider, 
+                                     levels = c( "HMIS", "Non-HMIS", "No Treatment") ,
+                                     labels = c("Public health\nfacility", "Private health\ncare",
+                                                "Not seeking care\noutside of home")),
+            endyear = factor( endyear, levels = 2006:2015)
+                  )
+  
+saveRDS( data, "x.AM.3b.rds")
+
+data = readRDS("x.AM.3b.rds") 
+ 
+```
+
+
+```{r}
+
+  data = readRDS("x.AM.3b.rds")
+
+  ylabel = "Proportion of febrile children given an antimalarial drug"
+  
+  fig.3.16.trend = 
+    ggplot( data , 
+        aes( endyear, percent, group = provider, color = provider)
+        ) + 
+  # guides(color = guide_legend()) +
+  scale_y_continuous( ylabel , label = percent)  +
+  scale_x_discrete("" ) +
+  scale_size( guide = FALSE ) +
+  scale_color_brewer( type = 'qual', guide = FALSE) +
+  geom_point( alpha = .5 ) + # , aes(size = pop)
+  geom_smooth(se = FALSE) +
+  theme_bw() +
+    
+  theme( axis.text = element_text(size=8) ,
+         axis.title = element_text(size=8, hjust = .5, face = 'plain'),
+         title  = element_text(size=9, face = 'bold', hjust = 0)) 
+    
+  cat( "Figure 3.XIb Proportion of children who recieve an ACT\namong those who receive any antimalarial, by place where care was sought,\nsub-Saharan Africa, 2010-2015")
+  
+  fig.3.16.trend
+  
+  # ggsave( "Figure 3.16.trend.pdf")
+  
+  # View(data)
+  write_excel_csv(data, "percent ACT by year.csv" )
+ 
+  cat( "Data file location: ", "percent ACT by year.csv")
+  
+```
+

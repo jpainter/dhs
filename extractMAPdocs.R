@@ -12,29 +12,45 @@ require(tidyr)
 require(tibble)
 
 source("file_list.r")
-files = as_data_frame(files)
 
-isMAP = grepl(".MAP", files$file)
+# get map files for files not already in dictionary
+# xxx data.frame of files not joined to in 'dhs_estimate_wmr.R
+f = files %>% inner_join( xxx, 
+                              by = c('country' = 'country', 'survey' = 'survey', 'year' = 'year')
+                              ) %>%
+  filter( grepl( "Children", file ) | grepl( "kr", file ))
 
-mapFiles = files[ isMAP, ] %>% mutate( 
+# f = files  # all files...
+
+isMAP = grepl(".MAP", f$file)
+
+mapFiles = f[ isMAP, ] %>% mutate( 
   name =  paste0(folder, "/", file),
   name = gsub( "../DHS/" , "" , name ),
   file = sapply( file, FUN = function(x) unlist(strsplit(x, ".MAP"))[1] )
   ) 
 
+
 # View(mapFiles)
 
 # loop through map files and convert to .rda files
 
-dictionary = NA
+new_dictionaries = list()
+
+.NameThenLabel  = TRUE  # for nearly all
+# .NameThenLabel  = FALSE  # for a few (Benin 2006, DRC 2007, MADA 2008, Zam 2007)
+
 n = nrow(mapFiles)
-progress =  progress_estimated(n, 0)
+p =  progress_estimated(n, 0)
 
 for (i in 1:n){ # n
  
-  progress$tick()$print()
+  p$pause(0.1)$tick()$print()
   
-  d =  try(  parseMAPfile( mapFile = unlist(mapFiles[i, "name"]) ) )
+  cat( mapFiles[i, "name"] )
+  
+  d =  try(  parseMAPfile( mapFile = unlist(mapFiles[i, "name"]), 
+                           NameThenLabel = .NameThenLabel ) )
   
   if ( is.null(d) ) next() 
   
@@ -47,22 +63,27 @@ for (i in 1:n){ # n
             file = unlist(mapFiles[i, "file"])
             )
   
-  if ( is.null(nrow(dictionary))  ){ 
-    dictionary = d 
-  } else {
-      dictionary = bind_rows(dictionary, d)
-    }
+  new_dictionaries[[i]] = d
 }
 
+dictionary_new = rbindlist(new_dictionaries, fill = TRUE) 
+saveRDS(dictionary_new, file = "dictionaryNew.rds")
+
+# combine with old dictionary
+# dictionary = readRDS("dictionaryNew.rds")
+# newD = bind_rows( dictionary, dictionary_new)
+# saveRDS(newD, file = "dictionaryNew.rds")
+
+######
+dictionary = readRDS("dictionary.rds") # about 5 sec
 View(dictionary)
-save(dictionary, file = "dictionary.rda")
-dictionary = load("dictionary.rda") # about 5 sec
 
-library(feather)
-write_feather( dictionary, "dictionary.feather")
-dd = read_feather("dictionary.feather") # about 2 sec
 
-View(dd)
+# library(feather)
+# write_feather( dictionary, "dictionary.feather")
+# dd = read_feather("dictionary.feather") # about 2 sec
+# 
+# View(dd)
 
 #### summaries ####
 # countries

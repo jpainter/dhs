@@ -8,15 +8,17 @@
 # mapFile = "Benin/Standard DHS 2011-12/Household Member Recode.MAP"
 
 
-parseMAPfile = function(mapFile){
+parseMAPfile = function(mapFile, NameThenLabel = TRUE){
   
   require(dplyr)
   require(readr)
   require(tidyr) # for fill function
+  require(data.table)
   
-  # lines_to_skip
-  x = read_lines( mapFile, locale = locale(encoding = "ISO-8859-1" ) )
+  # x = read_lines( mapFile, locale = locale(encoding = "ISO-8859-1" ) )
+  x = read_lines( mapFile)
 
+  # remove header lines ####
   # find first line with "Item Name"
   line_begins_item = which( grepl( "Item Name", x, fixed = TRUE))
   
@@ -45,7 +47,7 @@ parseMAPfile = function(mapFile){
   dash = which( grepl( "^-", y))
   
   # how many ocurences
-  length(dash)
+  # length(dash)
   
 
   # create matrix of paired lines with dashes; want to exclude all lines in between
@@ -60,103 +62,161 @@ parseMAPfile = function(mapFile){
     for (i in 1:nrow(pairs)){
       exclude = c(exclude, pairs[i, 'start']:pairs[i, 'stop'])
     }
+  
   exclude = exclude[!is.na(exclude)]
   include = setdiff( 1:length(y), exclude)
-  z = y[include]
+  #   ####
+  
+  z = y[include] # text, without header lines, to parse
   
   n = length(z)
-  map = data_frame(
-    Item_Name = character(n),
-    Item_Label = character(n),
-    
-    value = character(n),
-    label = character(n)
-  ) 
-  
-  # set all to NA
-  map[, ] = NA
+ 
+  map = list()
   
   cat( " there are ", length(z), " rows to read and parse")
   
-  for (row in 2:length(z)){
-    
-    if (row %% 100 == 0 ) { print( row ) }
-    # Sys.sleep(1)
-    
-    # assume line has all columns
-    writeLines(z[ c(1, row) ],"temp.map")
+  # pp <- progress_estimated(length(z))
 
-    m = read_table( "temp.map", 
-                    locale = locale(encoding = "ISO-8859-1"), 
-                    na = c("", "NA"), 
-                    col_names = T )
+  # for (row in 2:length(z)){
     
-    # test if all columns are empty, then skip
-    empty = function(x) {
-      is.na(x) | is.null(x) | trimws(x) == ""
-    }
+    # if (row %% 100 == 0 ) { print( row ) }
+    # Sys.sleep(1)
+    # pp$pause(0.1)$tick()$print()
     
-    if ( ncol(m) == sum( sapply( m, empty) ) ){ next() }
+    # ATTN
+    # need to remove bad characters like single backlash #####
+    # from mali, childrens, row = 5370,
+    # "Item_Name              Item_Label                                     Start  Len Type Type  Occ  Dec Char Fill"  
+    # "S_110K                 Improved stove (\"Foyer amélioré \")              1397    1    N    I    1    0   No   No"
+    # converted to "S 110K                 Improved stove   Foyer am lior                  1397    1    N    I    1    0   No   No"
+    
+    # zz = gsub("\"", " ", z[ c(1, row) ], fixed = TRUE) 
+    
+    zz = gsub("\"", " ", z[], fixed = TRUE) 
+    
+    zzz = gsub("\\(", "", zz) 
+    zzzz = gsub("\\)", "", zzz) 
+    
+    writeLines( zzzz, "temp.map")  # all the text
+    
+    cols = c('Item_Name', 'Item_Label', 'Start', 'Len', 'Type', 'Type1' , 'Occ' , 'Dec', 'Char', 'Fill')
+    # col_pos = sapply(cols, zzzz)
+    
+    # update oct 2016. #####
+    # Problem: reading with white space as deliminater causes too many cols because labels have many words
+    # Identify column positions and read as fixed with table
+    
+    writeLines( zzzz[1:2], "temp.map1") # write-read first lines to get column positions
+    col_positions = fwf_empty("temp.map1", skip = 1)
+    
+    # Inspect text: for small number of surveys( Benin 2006, DRC 2007, MADA 2008, Zam 2007)
+    # the order of document is reversed: Item_Label, Item_Name
+    # For these surveys, need to alter the column positions...
+    # View(zzzz[1:2])
+    
+    col_start = unlist( col_positions[1] )
+    col_end = unlist( col_positions[2] )
+    
+    characters = unlist( strsplit(zzzz[2], "") )
+    first.numeric = which( !is.na( as.numeric(characters) ) )[1] -1
+    
+    if (NameThenLabel){ 
       
-    
-    # if first column is blank, then row is a value list
-    if ( is.na(m$Item_Name) ){ 
+      # consolidate col positions between 1st column and 1st numeric column. 
+      start.positions2 = which( col_start>=first.numeric )
+      end.positions2 = c(start.positions2[1]-1, start.positions2 )
       
-      writeLines( z[row], "temp.map")
-      m = read_table( "temp.map", 
-                      locale = locale(encoding = "ISO-8859-1"), 
-                      na = c("", "NA"), 
-                      col_names = F )
-      m$label = ""
-      if (ncol(m) >1) m$label = paste( m[2:ncol(m)], collapse = " ")
-      m$value = m$X1
-      m = m[, c("value", "label")]
+      col_start2 = c( col_start[1:2], col_start[ start.positions2 ] ) 
+      col_start2 = unique(col_start2[ !is.na( col_start2)])
+      col_end2 = c( col_end[1], col_end[ end.positions2 ] )
+      col_end2 = unique( col_end2)
+      col_end2[2] = col_start2[3] - 1  # use max space for Item_Label
+      
+      col_positions2 = fwf_positions(col_start2, col_end2, col_names = cols)
       
     } else {
       
-      # if blanck columns before Start, then combine
-      colnum.start = which(grepl("Start", colnames(m), fixed = TRUE))
-      colnum.label = which(grepl("Item_Label", colnames(m), fixed = TRUE))  
-      # be sure Start is character
-      m$Start = as.character(m$Start)
+      # consolidate col positions between 1st column and 1st numeric column. 
+      start.positions2 = which( col_start>=first.numeric )
+      start.positions2 = c(1,  min(start.positions2) - 1, start.positions2)
+      end.positions2 = c( which( col_end == col_start[start.positions3[2]]-1 ),
+                          which( col_end >= first.numeric - 1 ),
+                          max(col_end)
+      )
       
-      if ( colnum.start - colnum.label > 1 ){
-        
-      m$Item_Label = paste( m[colnum.label:(colnum.start-1)], collapse = " ")
+      col_start2 = unname( col_start[ start.positions2 ] ) 
+      col_end2 = c( col_end[ end.positions2 ], col_start2[3] - 1 ) 
+      col_end2 = unname( col_end2[ order(col_end2)] )
+      
+      col_positions2 = fwf_positions(col_start2, col_end2, col_names = cols)
       
     }
-    
-    # get rid of columns with no name
-    keep_cols = c('Item_Name', 'Item_Label', 'value', 'label')
-    m = m[ , colnames(m) %in% keep_cols]
-    
+    # #####  
+    m = suppressMessages(
+      read_fwf("temp.map", 
+               col_positions = col_positions2, 
+               col_types = cols_only( 
+                 Item_Name = col_character(),
+                 Item_Label= col_character()
+                 ) ,
+               skip = 1 , 
+               # locale = locale(encoding = "ISO-8859-1"), 
+               na = c("", "NA")
+      )
+    )
+                 
+ 
+    # if first column is blank, then row is a value list
+    if (NameThenLabel){
+      mx =  suppressWarnings(
+      separate(m, Item_Label, c("value", "label"), " ", 
+                                remove = FALSE, extra = "merge")
+      ) %>%
+      filter(
+        !( Item_Label %in% "Not applicable")
+      ) %>%
+      mutate(
+        value = ifelse( is.na(Item_Name), value, NA),
+        label = ifelse( is.na(Item_Name), label, NA),
+        Item_Label = ifelse( is.na(Item_Name), NA, Item_Label ),
+        row = row_number() # Add row number to be able to re-sort in original order after adding in fixed up rows
+      ) 
+    } else {
+      mx =  suppressWarnings(
+      separate(m, Item_Name, c("value", "label"), " ", 
+                                remove = FALSE, extra = "merge")
+      ) %>%
+      filter(
+        !( Item_Name %in% "NotAppl")
+      ) %>%
+      mutate(
+        value = ifelse( is.na(Item_Label), value, NA),
+        label = ifelse( is.na(Item_Label), label, NA),
+        Item_Name = ifelse( is.na(Item_Label), NA, Item_Name ),
+        row = row_number() # Add row number to be able to re-sort in original order after adding in fixed up rows
+      )  %>%
+        rename( item_label = Item_Name, item_name = Item_Label) %>%
+        rename( Item_Label = item_label, Item_Name = item_name) %>%
+        # clean up names with trailing bits
+        rowwise() %>%
+        mutate(
+          Item_Name =  unlist( strsplit( Item_Name, " " ) )[1]
+        )
     }
     
-    map[row, colnames(map) %in% colnames(m)] = m
-
-  }
   
-  # keep important cols
-  map = map %>% select( Item_Name, Item_Label, value, label) 
-  
-  # remove rows with all empty data
-  map = map[ rowSums(is.na(map)) != ncol(map) , ]
 
   # fill in values from value above
-  map = map %>% fill(Item_Name) 
-  map = map %>% fill(Item_Label) 
+  mx = mx %>% fill(Item_Name) 
+  mx = mx %>% fill(Item_Label) 
 
-  
-  # Add row number to be able to re-sort in original order after adding in fixed up rows
-  map = map %>% mutate( row = row_number())
-  
-  
+ 
   # remove rows with no value or num if there are other rows with same Name, that has a value or num
-  map = map %>% group_by( Item_Name) %>%
+  mx = mx %>% group_by( Item_Name) %>%
     filter( ( n()>1 & !is.na(value) & !is.na(label) ) | ( n() == 1 ) ) 
   
 
-  return(map)
+  return(mx)
 }
 
 # test:  map = parseMAPfile(mapFile); View(map); map %>% count(Name)

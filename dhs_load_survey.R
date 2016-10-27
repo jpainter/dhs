@@ -67,7 +67,8 @@ load_survey_object = function(
                 # .survey_year = "MIS 2011",
                 .year = 2011 ,
                 .survey = "DHS",
-                dataset = TRUE, # returns dataset (x) along with survey design objects
+                design = FALSE, # return survey design object
+                dataset = TRUE, # returns dataset (x) 
                 geo = FALSE, 
                 printout = FALSE,
                 vars = NULL  # if not specified, will select variables from vars() [dhs_variable_selection.R]
@@ -290,23 +291,32 @@ load_survey_object = function(
  if (printout){
       cat(paste( "the completed merged file has", nrow(x), "rows and ", ncol(x), "columns"))
   }
-          
+  
+  if (design){
+    
   # test if strata exists; some surveys have no strata (e.g. madagascar mis 2011)
-  has.strata.022 = nrow( as.data.frame.table( table(x$hv022) ) ) > 1
-  has.strata.023 = nrow( as.data.frame.table( table(x$hv023) ) ) > 1
-  has.strata.025 = nrow( as.data.frame.table( table(x$hv025) ) ) > 1
+  has.strata.022h = nrow( as.data.frame.table( table(x$hv022) ) ) > 1
+  has.strata.023h = nrow( as.data.frame.table( table(x$hv023) ) ) > 1
+  has.strata.025h = nrow( as.data.frame.table( table(x$hv025) ) ) > 1
 
-
-if (has.strata.022) { # urban/rural
+  has.strata.022c = nrow( as.data.frame.table( table(x$v022) ) ) > 1
+  has.strata.023c = nrow( as.data.frame.table( table(x$v023) ) ) > 1
+  has.strata.025c = nrow( as.data.frame.table( table(x$v025) ) ) > 1
+  
+if (has.strata.022h) { # urban/rural
     strataformula.h = as.formula("~hv022 ")
-    strataformula.c = as.formula("~v022 ")
-    strataformula.w = as.formula("~v022 ")
     strataformula.hm = as.formula("~hv022 ")
   } else {
       strataformula.h = NULL
+      strataformula.hm = NULL
+      }
+
+  if (has.strata.022c) { # urban/rural
+    strataformula.c = as.formula("~v022 ")
+    strataformula.w = as.formula("~v022 ")
+  } else {
       strataformula.c = NULL
       strataformula.w = NULL
-      strataformula.hm = NULL
       }
 
 # see Vanderelst/Speybroeck (different from Damico); to include household? 
@@ -361,6 +371,14 @@ if (has.strata.022) { # urban/rural
               data =  x.hm , 
               weights = ~ weight.hm 
             )  
+  
+  } else {
+    svy.h = NULL
+    svy.c = NULL
+    svy.w = NULL 
+    svy.hm = NULL
+    
+  } # end if (design)
   
   vars_x = sapply( names(x), function(x) any(grepl(paste0("\\b", x, "\\b"), x)) )
   

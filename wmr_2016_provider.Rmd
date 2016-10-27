@@ -25,7 +25,7 @@ opts_chunk$set( echo = FALSE, cache = TRUE,
 
 ```
 
-All available surveys from Sub-Saharan Africa from 2000 to present were downloaded from DHS.  
+All available surveys from Sub-Saharan Africa from 2010 to present were downloaded from DHS.  
 
 ```{r, fig.width=7.5, out.width=7.5}
 
@@ -33,7 +33,8 @@ source("file_list.r")
 
 subsahara = countrycode_data %>%
   filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
-  select( country.name, iso3c ) 
+  select( country.name, iso3c ) %>%
+  filter( !country.name %in% "Lesotho")
 
 
 files = files %>% 
@@ -53,6 +54,7 @@ ncountries = length( unique( files$country ) )
 
 # Select variables of interest  for access to care 
 
+## broad variable labels
 ```{r}
 
 dd <-readRDS("dictionary.rds")  # about 6 sec
@@ -75,7 +77,7 @@ source('dhs_variable_selection.R')
 variables =  c('v000', 
        'v001', 'v002', 'v003', 'v005', 'v021', 'v023', 'v024', 'v025', 
        'weight.c', 'weight.hm', 'weight.w', 'weight.h', 
-       'hv001',  'hv002', 'hv003',  'hv005', 'hv007', 'hv021', 'hv023', 'hv024', 'hv025',
+       'hv001',  'hv002', 'hv003',  'hv005', 'hv007', 'hv021', 'hv022', 'hv023', 'hv024', 'hv025',
        'hvidx', 'b16',
        'h22', 'hv105', 'h47', 
        'hml16', # age in years
@@ -100,13 +102,37 @@ kable(lv, row.names = FALSE)
 ```
 
 
+## survey specific variable labels
+
+```{r}
+
+clv = dd %>% 
+  filter( year > 2011 ) %>%
+  mutate( item_name = tolower(Item_Name),
+                     svy = paste( country, survey, year)
+                     ) %>%
+  filter( grepl( "H32", Item_Name )  ) %>%
+  filter( !grepl( "NA", Item_Label, fixed = TRUE) & 
+            !grepl( "Note:", Item_Name, fixed = TRUE) ) %>%
+  filter( file %in% "Children's Recode" ) %>% 
+  count(Item_Name, Item_Label, svy, year ) %>%
+  spread( Item_Name, Item_Label ) %>%
+  arrange(desc( year)  )
+
+
+```
+
+
 # create dataset. run one time after updating variables or adding surveys
 
 ```{r, include = FALSE, eval= FALSE}
 source("dhs_load_survey.R")
 
 nsurveys = nrow(survey_list)
+
+survey_list = survey_list %>% arrange( desc(year) )
 index = row.names(survey_list)
+
 p <- progress_estimated(nsurveys)
 
 x <- vector("list", length( nsurveys)) 
@@ -197,7 +223,7 @@ saveRDS(X, "provider.rds")
 
 ```
 
-```{r, eval = FALSE}
+```{r, eval = TRUE, include= FALSE}
 
 X = readRDS(  "provider.rds" )
 
@@ -209,18 +235,18 @@ rows = nrow(X)
 cat( "The file includes", data_nsurveys, "surveys from", data_ncountries, "countries with", nvars, "columns, ", rows, "rows and is " , comma(object.size(X)[1]), "bytes")
 
 # list surveys included
-kable( X %>% count( country, survey, year ) %>% arange(-year) , row.names = TRUE)
+kable( X %>% count( country, survey, year ) %>% arrange( desc(year)) , row.names = TRUE)
 ```
 
 # filter to those with fever in last 2 weeks
 
-```{r, eval = FALSE}
+```{r }
 # X %>% count(h22) # had fever
 # X %>% filter( h22 %in% 0:1) %>% count(hml16) # age in yrs
 
-x = X %>% filter( hml16 < 5 , h22 == 1 )
+x = X %>% filter( h22 == 1 , iso3c %in% subsahara$iso3c)
 
-saveRDS( x, "provider_subset.rds")
+# saveRDS( x, "provider_subset.rds")
 
 data_ncountries = length( unique(x$country))
 data_nsurveys = nrow( unique( as.data.frame(x)[, c("country", "survey", "year")] )  )
@@ -236,9 +262,9 @@ cat( "Subsetting yields", data_nsurveys, "surveys from", data_ncountries, "count
 
 ```{r}
 
-x = readRDS("provider_subset.rds")
+# x = readRDS("provider_subset.rds")
 
-x %>% arrange( -substr(year, 1, 4) ) %>% count( country, survey, year ) %>%  kable( row.names = TRUE)
+x  %>% count( country, survey, year ) %>% arrange( desc(year) ) %>%  kable( row.names = TRUE)
 ```
 
 # inspect data for unwanted values (e.g. 9 for missing)
