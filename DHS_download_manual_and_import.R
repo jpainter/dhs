@@ -88,22 +88,29 @@ is.zip.file = grepl(".zip", files)
 zip_files = files[is.zip.file]
 
 # SET option to redownload if dataset already exists (FALSE will only download new data) ####
-redownload = FALSE  # TRUE will result in overwrite
+redownload = TRUE  # TRUE will result in overwrite
 
 ## loop through each country folder #####
   
+p <- progress_estimated(zip_files)
+  
+  
 for ( j in seq_along( zip_files) ){
+  
+  if ( length( seq_along( zip_files) ) > 1 ){ p$pause(0.1)$tick()$print() }
   
   # final folder to save it
   country_iso2 <- substr(zip_files[j],1,2)
   country = countrycode(country_iso2, "iso2c", "country.name")
-  dir.create( paste0("dhs_download/", country) , showWarnings = FALSE )
+  dir.create( paste0(  country) , showWarnings = FALSE )
   
   #create folder for survey within country 
   underscores = gregexpr( "_", zip_files[j])[[1]]
   survey = substr(zip_files[j], underscores[1]+1, underscores[3]-1 )
-  survey_folder = paste0("dhs_download/", country, "/", survey)
+  survey_folder = paste0( country, "/", survey)
   dir.create( survey_folder , showWarnings = FALSE )
+  
+  cat( country, survey, "\n")
   
   unzip( paste0("dhs_download/", zip_files[j] ), exdir = survey_folder)
   

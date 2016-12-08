@@ -15,9 +15,14 @@ parseMAPfile = function(mapFile, NameThenLabel = TRUE){
   require(tidyr) # for fill function
   require(data.table)
   
-  # x = read_lines( mapFile, locale = locale(encoding = "ISO-8859-1" ) )
-  x = read_lines( mapFile)
-
+  x = read_lines( mapFile, locale = locale(encoding = "ISO-8859-1" ) )
+  # x = read_lines( mapFile, locale = locale(encoding = "UTF-8" ) )
+  # x = read_lines( mapFile)
+ 
+  # x = gsub("<..>", "", x, perl = T) # remove bad characters like <e9>
+  
+  # View(as.data.frame(x))
+  
   # remove header lines ####
   # find first line with "Item Name"
   line_begins_item = which( grepl( "Item Name", x, fixed = TRUE))

@@ -61,49 +61,33 @@ variables =  c('v000',
 # source("dhs_variable_selection.R")
 source( "dhs_load_survey.R" )
 
-# svy = load_survey_object( .country = .country,
-#                           .survey_year = .survey_year ,
-#                           geo = FALSE
-# )
+svy = load_survey_object( .country = "Rwanda",
+                          .survey = "Standard DHS" ,
+                          .year = "2010",
+                          design = TRUE,
+                          geo = FALSE
+)
 
 # svy.h =  svy[[1]] 
 # svy.c =  svy[[2]] 
+survey = svy[[4]] # household member
 # names(svy[[3]])  # list of variables
 
-# df = data.frame(Data = svy[[3]], row.names = names(svy[[3]]))  # survey structure
+survey = update(survey,  rdt = ifelse( hml35 %in% 0, 0, 
+                                       ifelse( hml35 %in% 1, 1, 
+                                               NA)) )
 
-dd <-readRDS("dictionary.rds")  # about 6 sec
-
+dd <-readRDS("dictionaryNew.rds")  # about 6 sec
 
 # Forest plot by region ####
-svy_forest_by = function(.var = "hml32", 
+svy_forest_by = function(.var = "hml35",
                          .by = "hv024", 
-                         .file = "household", 
-                         .country = "Burkina Faso",
-                         .survey = "MIS",
-                         .year = "2014",
+                         survey = survey, 
                          .dictionary = dd,
                          .subtitle = "" ){
  
-  svy <- load_survey_object( 
-                        # printout = TRUE ,  # un comment when testing
-                        vars = variables, 
-                        .country = .country, 
-                        .survey = .survey,
-                        .year = .year)
-  
-  if (.file == "household"){ survey = svy[[1]] 
-  } else if ( .file == "children") { survey = svy[[2]] 
-  } else {
-    return()
-  }
 
-  names(svy[[3]])  # list of variables
-  
-  # df = data.frame(Data = svy[[3]], row.names = names(svy[[3]]))  # survey structure
-  
-  
-  sb =svyby( as.formula(paste("~", tolower(.var))) , 
+  sb = svyby( as.formula(paste("~", tolower(.var))) , 
              by = as.formula(paste("~", .by)), 
              survey, 
              svymean, na.rm = TRUE )
@@ -120,9 +104,7 @@ svy_forest_by = function(.var = "hml32",
   # - any way to speed up loading of survey?
 
   # categories/regions and axis label dexcription
-  d = dictionary %>% 
-    filter( grepl( "member", file, ignore.case = TRUE) , 
-            toupper(Item_Name) == toupper("hv024") ) 
+  d = dictionary[dictionary$Item_Name %in% toupper(.by), c(1, 3, 4)] %>% unique
   
   values = factor(d$label) 
   label = paste( unique(d$Item_Name), ":" , unique(d$Item_Label) )
@@ -132,24 +114,26 @@ svy_forest_by = function(.var = "hml32",
     geom_point() + 
     geom_errorbar(aes(ymin = lower, ymax = upper), width = .25) +
     xlab(NULL) +
-    ylab(label) +
+    ylab(.var) +
+    scale_y_continuous( labels = scales::percent ) +
     coord_flip() +
-    ggtitle( paste(.country, .survey, .year)) 
+    ggtitle( paste(.country, .survey, .year), subtitle = .subtitle) 
 
-  
-  if ( nchar(.subtitle)>0 ){
-    g = g + labs(subtitle = .subtitle)
-  }
-  
+
   return(g)
 }
 
-# tests
+# tests ####
 
-svy_forest_by(.var="hml32", .by = "hv024", .file = "household",
-              .country = "Burkina Faso",
-              .survey = "MIS",
-              .year = "2014" )
+
+
+svy_forest_by(.var="hml32", .by = "hv000", .subtitle = "Parasitemia (microscopy)", survey = survey)
+svy_forest_by(.var="hml32", .by = "hv024", .subtitle = "Parasitemia (microscopy)", survey = survey)
+
+svy_forest_by(.var="rdt", .by = "hv024", .subtitle = "Parasitemia (RDT)", survey = survey)
+svy_forest_by(.var="rdt", .by = "hv000",  .subtitle = "Parasitemia (RDT)", survey = survey)
+
+
 # 
 # svy_forest_by("hml35", .subtitle = "results by regions", .survey = "household",
 #               .country = "Benin", .survey_year = "Standard DHS 2011-12")

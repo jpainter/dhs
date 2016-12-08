@@ -10,7 +10,7 @@ library(knitr)
 knitr::opts_chunk$set(echo = FALSE, cache = TRUE)
 ```
 
-```{r, include = FALSE}
+```{r, include = FALSE, cache=FALSE}
 library(data.table)
 library(tidyverse)
 library(stringr)
@@ -48,7 +48,7 @@ survey_list = files %>% count(country, survey, year) %>% select(-n) %>% arrange(
 nsurveys = nrow(survey_list)
 ncountries = length( unique( files$country ) )
 
-kable(survey_list, row.names = TRUE)
+# kable(survey_list, row.names = TRUE)
 
 ```
 
@@ -190,12 +190,7 @@ x = readRDS("provider_rx.rds")
 
 ## subset to available surveys from 2006 to 2016: 
 
-```{r}
-
-subsahara = countrycode_data %>%
-  filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
-  select( country.name, iso3c ) %>%
-  filter( !country.name %in% "Lesotho") 
+```{r, include=FALSE}
 
 x = x %>% 
   mutate( startyear = as.integer( substr( year, 1, 4 ) ),
@@ -205,7 +200,7 @@ x = x %>%
                               substr( year, 1, 4 ))
             )
             ) %>%
-  filter( endyear >= 2006, 
+  filter( endyear >= 2010, 
           iso3c %in% subsahara$iso3c ,
           !is.na(weight.c)   # only those with weight 
           ) %>% 
@@ -229,8 +224,6 @@ kable( x.list %>% select(-n) , row.names = TRUE)
 # count( filter(dd, grepl( "H37|ML13", Item_Name )), file)
 
   ddrx = dd %>% ungroup %>%
-    filter( grepl( "Children", file ) | grepl( "kr", file )
-            ) %>%
     mutate(
       startyear = as.integer( substr( year, 1, 4 ) ) ,
       endyear = as.integer(
@@ -241,11 +234,11 @@ kable( x.list %>% select(-n) , row.names = TRUE)
       Item_Label = tolower( Item_Label ) ,
       Item_Name = tolower( Item_Name)
     ) %>%
-    filter( endyear >= 2006 ) %>% 
+    filter( endyear >= 2010 ) %>% 
     count( country, survey, startyear, Item_Name, Item_Label) %>% 
     filter( grepl( "h37|ml13", Item_Name ) )  %>% ungroup
 
-  kable( ddrx %>% count( country, survey, startyear ) %>% arrange(desc(startyear)) %>% select(-nn), row.names = TRUE)
+  # kable( ddrx %>% count( country, survey, startyear ) %>% arrange(desc(startyear)) %>% select(-nn), row.names = TRUE)
 
 ```
 
@@ -253,13 +246,17 @@ kable( x.list %>% select(-n) , row.names = TRUE)
 
 ```{r}
   # lookup care_levels for each  provider
-  csb_mapped_2016 <- read_excel("~/Dropbox/_Malaria/Projects/WMR/csb_mapped_october24_2016.xlsx")
+  csb_translatation_file = "csb_mapped_october27_2016.csv"
 
-  csb_levels = read_excel("~/Dropbox/_Malaria/Projects/WMR/care_levels.xlsx") %>% as.data.frame()
+  csb_mapped<- read.csv(  csb_translatation_file, stringsAsFactors = FALSE )
   
-  csb_map = csb_mapped_2016 %>%
+  csb_map = csb_mapped %>% 
     group_by( iso3, startyear, varname ) %>%
-    summarise( care_level = max(care_level, na.rm = TRUE))
+    summarise( care_level = first(care_level))
+  
+  csb_levels_file = "csb_levels_october27_2016.csv"
+  
+  csb_levels = read.csv(  csb_levels_file, stringsAsFactors = FALSE  )
   
 ```
 
@@ -297,7 +294,7 @@ xcsbl = xcsb  %>%
 # translate dhs provider categories to csb types 
   ## replace values of 9 with NA
   
-  xcsbl$care_level = as.integer( csb_map[ match( 
+  xcsbl$care_level = as.integer( csb_mapped[ match( 
     paste(xcsbl$iso3c, xcsbl$startyear, xcsbl$provider), 
     paste(csb_map$iso3, csb_map$startyear, csb_map$varname) 
     ),]$care_level )
@@ -352,32 +349,40 @@ x.csb.l$care_level3b = csb_levels[ match(x.csb.l$care_level, csb_levels$care_lev
 
 ```{r}
 
+rx_2016 <- read_excel("Drugs lookup 2016.xlsx")
 
-rx_2016 <- read_excel("~/Dropbox/_Malaria/Projects/WMR/Drugs lookup 2016.xlsx")
-
-rx_levels = read_excel("~/Dropbox/_Malaria/Projects/WMR/Drugs lookup 2016.xlsx", sheet = 3) 
+rx_levels = read_excel("Drugs lookup 2016.xlsx", sheet = 3) 
  
-rx_classes = read_excel("~/Dropbox/_Malaria/Projects/WMR/Drugs lookup 2016.xlsx", sheet = 2) 
+rx_classes = read_excel("Drugs lookup 2016.xlsx", sheet = 2) 
 ```
 
+## Transform data
 
 ```{r, eval= FALSE}
 
 ## transform dataset to long format by provider , then by drug
 xrxl = x.csb.3b  %>% ungroup() %>%
     gather(drug, drug_value, -country, -iso3c, -startyear, -endyear, -survey, 
-           -hv021, -hv023, -weight.c, -h47, -id, -HMIS, -`Non-HMIS`, -`No Treatment`) 
+           -hv021, -hv023, -weight.c, -h47, -id, -HMIS, -`Non-HMIS`, -`No Treatment`)  %>%
+  filter( !is.na( drug_value ))
 
 
 # translate dhs drug categories to drug classes 
   ## replace values of 9 with NA
   
-  xrxl$Drug1 = as.integer( 
-    rx_2016[ match( 
-      paste(xrxl$iso3c, xrxl$startyear, xrxl$drug), 
-      paste(rx_2016$iso3, rx_2016$startyear, rx_2016$varname) 
-    ), ]$Drug1 
-    )
+  # xrxl$Drug1 = as.integer( 
+  #   rx_2016[ match( 
+  #     paste(xrxl$iso3c, xrxl$startyear, xrxl$drug), 
+  #     paste(rx_2016$iso3, rx_2016$startyear, rx_2016$varname) 
+  #   ), ]$Drug1 
+  #   )
+  
+  xrxl = inner_join( 
+    xrxl ,
+    rx_2016 %>% select(iso3, startyear, varname, Drug1),
+    by = c("iso3c" = "iso3", "startyear" = "startyear", "drug" = "varname")
+    ) %>%
+    filter( !is.na(drug_value)) 
       
 # set grouping variables that includes long list of drug variables
 
@@ -415,7 +420,57 @@ x.drug.l$ClassAM = unlist( rx_levels[ match(x.drug.l$Drug1, rx_levels$Drug1), "C
 ```
 
 
-# function to return dataset for a given provider classification
+### Data checks-- find rows with missing care_level--and updateing csb excel files
+```{r, eval=FALSE}
+    
+  
+    # look at un-joined....
+  anti.xrxl2 = 
+    anti_join( 
+      xrxl ,
+      rx_2016 ,
+      by = c("iso3c" = "iso3", "startyear" = "startyear", "drug" = "varname")
+    ) %>%
+    filter( !is.na(drug_value)) %>%
+  left_join( ddrx, 
+             by = c("country" = "country", "survey" = "survey", "startyear" = "startyear",
+                    "drug" = "Item_Name"))
+  
+
+  xxx = anti.xrxl2 %>% 
+    count( country, survey, startyear) %>%
+    arrange(-startyear)
+
+
+  missing = anti.xrxl2 %>%
+    mutate( SerNo = integer( nrow(anti.xrxl2))) %>%
+    rename( iso3 = iso3c,
+            varname = drug,
+            varlab = Item_Label,
+            filename = survey) %>%
+    count( SerNo, iso3, startyear, filename, varname, varlab)
+  
+  # try to match previous lookup values by name
+  missing.Guess = left_join( missing, rx_2016 %>% count(varlab, Drug1, Drug2) )
+
+  # View( xld.m )
+  
+  # Add the missing labels back to the csb_mapped file (then comment out lines so not re-run) #
+    # 1.
+    # add_rx= missing.Guess %>%  ungroup %>%
+    #   select(SerNo, iso3, startyear, filename, varname, Drug1, Drug2, varlab)
+    # 
+    # rx_old <- read_excel("~/Dropbox/_Malaria/Projects/WMR/Drugs lookup 2016.xlsx")
+    # rx_new = bind_rows( rx_old, add_rx )
+    # write_excel_csv(rx_new, "rx_new_2016_27oct.csv")
+
+    # 2. go to excel/csv file and classify the drugs to be consistent with previous categorizations
+    # 3. paste into rx_2016 excel file
+    
+```
+
+
+### function to return dataset for a given provider classification
 
 ```{r}
 
@@ -438,18 +493,19 @@ x.csb.drug = function( care_level = "care_level3b" ){
   
 ## transform dataset to long format by drug
 xrxl = x.csb.  %>% ungroup() %>%
-    gather_( "drug", "drug_value", gather_cols = drug.col.names )
+    gather_( "drug", "drug_value", gather_cols = drug.col.names )  %>%
+    filter( !is.na( drug_value ))
+
+xrxl = 
+  inner_join( 
+    xrxl ,
+    rx_2016 %>% select(iso3, startyear, varname, Drug1),
+    by = c("iso3c" = "iso3", "startyear" = "startyear", "drug" = "varname")
+    ) 
 
 
 # translate dhs drug categories to drug classes 
   ## replace values of 9 with NA
-  
-  xrxl$Drug1 = as.integer( 
-    rx_2016[ match( 
-      paste(xrxl$iso3c, xrxl$startyear, xrxl$drug), 
-      paste(rx_2016$iso3, rx_2016$startyear, rx_2016$varname) 
-    ), ]$Drug1 
-    )
   
   csb_cols = c( "HMIS", "Non-HMIS", "No Treatment", 
                  "Public", "CHW", "Charity", 
@@ -739,9 +795,9 @@ estimates_ACT = readRDS("x.AM.6.rds")
   theme_bw() +
   theme( axis.text = element_text(size=8) ,
          axis.title = element_text(size=8, hjust = .5, face = 'plain'),
-         title  = element_text(size=9, face = 'bold', hjust = 0))
+         title  = element_text(size=9, face = 'bold', hjust = 0)) +
   
-  cat( "Figure 3.XIb Proportion of children who recieve an ACT\namong those who receive any antimalarial, by place where care was sought,\nsub-Saharan Africa, 2014-2015")
+  ggtitle( "Figure 3.XIb Proportion of children who recieve an ACT\namong those who receive any antimalarial, by place where care was sought,\nsub-Saharan Africa, 2014-2015")
   
   fig.3.10.6
   
@@ -758,6 +814,9 @@ estimates_ACT = readRDS("x.AM.6.rds")
 ## ACT Trend
   
 ```{r, include=FALSE}
+
+options(survey.lonely.psu="adjust")
+options(survey.adjust.domain.lonely=TRUE)
 
   data = x.csb.drug( care_level = "care_level3b" ) %>% 
   mutate( 
@@ -798,8 +857,8 @@ estimates_ACT = readRDS("x.AM.6.rds")
              !is.na(hv021)  # survey design object, below, requires non missing value for psu (hv021)
              )  %>%
       select_( "iso3c", "startyear", "endyear",   "survey", "hv021", "hv023", "weight.c", "h47", 
-               .dots =  c( "HMIS", "`Non-HMIS`", "`No Treatment`"),
-               "pctACT" )  %>%
+               .dots =  c( "HMIS", "`Non-HMIS`", "`No Treatment`"), 
+               "ACT", "anyAM" , "pctACT")  %>%
       ungroup
     
     # if no survey, or no values, move on
@@ -901,15 +960,16 @@ data = readRDS("x.AM.3b.rds")
   scale_x_discrete("" ) +
   scale_size( guide = FALSE ) +
   scale_color_brewer( type = 'qual', guide = FALSE) +
-  geom_point( alpha = .5 ) + # , aes(size = pop)
+    # geom_point( alpha = .5) + # , aes(size = pop)
+  geom_jitter( width = .3, alpha = .5) +
   geom_smooth(se = FALSE) +
   theme_bw() +
     
   theme( axis.text = element_text(size=8) ,
          axis.title = element_text(size=8, hjust = .5, face = 'plain'),
-         title  = element_text(size=9, face = 'bold', hjust = 0)) 
+         title  = element_text(size=9, face = 'bold', hjust = 0)) +
     
-  cat( "Figure 3.XIb Proportion of children who recieve an ACT\namong those who receive any antimalarial, by place where care was sought,\nsub-Saharan Africa, 2010-2015")
+  ggtitle( "Figure 3.XIb Proportion of children who recieve an ACT\namong those who receive any antimalarial, by place where care was sought,\nsub-Saharan Africa, 2010-2015")
   
   fig.3.16.trend
   

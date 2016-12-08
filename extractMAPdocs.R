@@ -10,17 +10,19 @@ require(dplyr)
 require(readr)
 require(tidyr)
 require(tibble)
+require(countrycode)
 
 source("file_list.r")
 
 # get map files for files not already in dictionary
-# xxx data.frame of files not joined to in 'dhs_estimate_wmr.R
-f = files %>% inner_join( xxx, 
-                              by = c('country' = 'country', 'survey' = 'survey', 'year' = 'year')
-                              ) %>%
-  filter( grepl( "Children", file ) | grepl( "kr", file ))
+# xxx data.frame of files not joined to in dhs_rx_wmr.R, wmr_2016_csb_ver2, etc
+# f = files %>% 
+#   inner_join( xxx, 
+#                               by = c('country' = 'country', 'survey' = 'survey', 'year' = 'year')
+#                               ) %>%
+  # filter( grepl( "Children", file ) | grepl( "kr", file ) )
 
-# f = files  # all files...
+f = files  # all files...
 
 isMAP = grepl(".MAP", f$file)
 
@@ -56,18 +58,27 @@ for (i in 1:n){ # n
   
   if ( class(d) == "try-error" ) next() 
   
+  .country = unlist(mapFiles[i, "country"] )
+  .iso3c = countrycode( .country, "country.name", "iso3c")
+  .survey = unlist(mapFiles[i, "survey"])  
+  .year = unlist(mapFiles[i, "year"]) 
+  .file = unlist(mapFiles[i, "file"])
+  
   d = d %>%
-    mutate( country = unlist(mapFiles[i, "country"] )  ,
-            survey = unlist(mapFiles[i, "survey"])  ,
-            year = unlist(mapFiles[i, "year"]) ,
-            file = unlist(mapFiles[i, "file"])
+    mutate( country = .country  ,
+            iso3c = .iso3c , 
+            survey = .survey  ,
+            year = .year ,
+            file = .file
             )
   
   new_dictionaries[[i]] = d
 }
 
 dictionary_new = rbindlist(new_dictionaries, fill = TRUE) 
-saveRDS(dictionary_new, file = "dictionaryNew.rds")
+View(dictionary_new)
+
+saveRDS( dictionary_new, file = "dictionaryNew.rds" )
 
 # combine with old dictionary
 # dictionary = readRDS("dictionaryNew.rds")
@@ -75,7 +86,7 @@ saveRDS(dictionary_new, file = "dictionaryNew.rds")
 # saveRDS(newD, file = "dictionaryNew.rds")
 
 ######
-dictionary = readRDS("dictionary.rds") # about 5 sec
+dictionary = readRDS("dictionaryNew.rds") # about 5 sec
 View(dictionary)
 
 

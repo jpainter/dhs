@@ -12,7 +12,7 @@ library(dplyr)
 
 
 # functions for loading data files ####
-source( "getSurveyGIS.R")
+if (!existsFunction( "survey_GIS_data" ) ) source( "getSurveyGIS.R")
 
 openSurveyFile = function(
   country = NA ,
@@ -170,7 +170,7 @@ load_survey_object = function(
   } else
   { hmc = hm }  
   
-  rm( hm); rm(c) 
+  # rm( hm); rm(c) 
 
   if (printout){  
     cat(paste( "the merged childrens-womens file has", nrow(hmc), "rows and ", ncol(hmc), "columns")
@@ -196,7 +196,7 @@ load_survey_object = function(
   } else
   { hmcw = hmc } 
   
-  rm( hmc ) 
+  rm( hmc )
   
   if (printout){
       cat(paste( "the merged household member-children-womens file has", nrow(hmcw), "rows and ", ncol(hmcw), "columns"))
