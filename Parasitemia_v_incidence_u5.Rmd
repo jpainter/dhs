@@ -1,0 +1,448 @@
+---
+title: "Parasitemia and Incidence"
+author: "jp"
+date: "11/3/2016"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+
+```{r, include = FALSE, cache=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE)
+
+library(data.table)
+library(tidyverse)
+library(stringr)
+library(scales)
+library(forcats)
+library(survey)
+library(gridExtra)
+library(countrycode)
+library(readr)
+library(readxl)
+library(DT)
+library(plotly)
+library(zoo)
+
+```
+
+
+# A Comparison of malaria parasitemia (from household surveys) with incidence data (from WHO, World Malaria Report)
+
+
+## Survey data 
+
+```{r,  include = FALSE}
+
+source("file_list.r")
+
+subsahara = countrycode_data %>%
+  filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
+  select( country.name, iso3c, iso2c ) %>%
+  filter( !country.name %in% "Lesotho") 
+
+
+files = files %>% 
+  mutate( country.name = countrycode(country, "country.name", "country.name")) %>%
+  filter( survey!="", year >= 2006 , country.name %in% subsahara$country.name)
+
+# not_needed = c('Bangladesh', 'Pakistan', 'Philippines', 'Comoros')
+
+survey_list = files %>% count(country, survey, year) %>% select(-n) %>% arrange(desc(year))
+
+nsurveys = nrow(survey_list)
+ncountries = length( unique( files$country ) )
+
+datatable(survey_list)
+
+```
+
+```{r, include = FALSE}
+# select variables for this analysis, v
+variables =  c('v000', 
+       'v001', 'v002', 'v003', 'v005', 'v021', 'v023', 'v024', 'v025', 
+       'weight.c', 'weight.hm', 'weight.w', 'weight.h', 
+       'hv001',  'hv002', 'hv003',  'hv005', 'hv007', 'hv021', 'hv022', 'hv023', 'hv024', 'hv025',
+       'hvidx', 'b16',
+       'h22', 'hv105', 'h47', 
+       'hml16', # age in years
+       'hml32', 'hml35' )
+
+```
+
+```{r, include = FALSE, eval= FALSE}
+source("dhs_load_survey.R")
+
+nsurveys = nrow(survey_list)
+
+survey_list = survey_list %>% arrange( desc(year) )
+index = row.names(survey_list)
+
+p <- progress_estimated(nsurveys)
+
+x <- vector("list", length( nsurveys)) 
+
+translate = FALSE  # optional translation of values to label.  
+  # NB: Does not work well for all variables
+
+for (i in seq_along( index ) ){
+  
+   p$pause(0.1)$tick()$print()
+  
+  .country = survey_list[i, ]$country
+  .iso3c = countrycode( survey_list[i, ]$country, "country.name", "iso3c")
+  .survey = survey_list[i, ]$survey
+  .year = survey_list[i, ]$year
+  .survey_name = paste(.survey, .year)
+
+  print( paste(.country, .survey, .year))
+  
+  svy <- try( silent = TRUE,
+    load_survey_object( design = FALSE,
+                        # printout = TRUE ,  # un comment when testing
+                        vars = variables, 
+                        .country = .country, 
+                        .survey = .survey,
+                        .year = .year)
+  )
+  
+  #TODO FILTER RECORDS--apply filter, like keeping only children with parasitemia, is not unnecessarily large
+
+  if ( class(svy) == "try-error" ){ 
+    next()
+    }
+
+  # returns: svy.h, svy.c, svy.w, svy.hm, vars_x, x
+  # svy.h <- svy[[1]]
+  # svy.c <- svy[[2]]
+  # svy.w <- svy[[3]]
+  # svy.hm <- svy[[4]]
+  has_vars = svy[[5]]
+  x[[i]] = svy[[6]] 
+  
+  x[[i]]$country = rep( .country, nrow(x[[i]]) )
+  x[[i]]$iso3c = rep( .iso3c, nrow(x[[i]]) )
+  x[[i]]$year = rep( .year, nrow(x[[i]]) )
+  x[[i]]$survey = rep( .survey, nrow(x[[i]]) )
+
+  # TODO: optional- relate dictionary to survey                    )
+
+  # # TODO: only for columns with >4 values (others easier to keep as numeric)
+  # # Deriving this table should happen once, before loop
+  # v = dd %>% filter( tolower(Item_Name) %in% variables) %>% group_by( Item_Name, label ) %>% 
+  #   summarise( n = n()) %>% group_by( Item_Name) %>% count(Item_Name) %>% filter(nn>4) 
+
+  if (translate){
+    
+      # refine dictionary for this country-survey 
+      dict = dd %>% filter_( ~country == .country , ~survey == .survey, ~year == .year,
+                        ~Item_Name %in% toupper(names(has_vars))
+      )
+     
+    y = x[[i]]
+  
+    for (col in 1:length(colnames(y))){
+      column = tolower( colnames(y)[col] )
+      
+      dict_var = dict %>% 
+        mutate( item_name = tolower(Item_Name)) %>%
+        filter_( ~item_name == column ) %>% # , ~file == "Household Member Recode"
+        count( value, label) %>% select(-n)
+      
+      old_value = y[, col]
+      new_value = dict_var[ match( old_value, dict_var$value ), ]$label
+      y[, col] = ifelse( is.na( new_value), old_value, new_value)
+    }
+      x[[i]] = y
+}
+
+  # if (is.null(X) ){ X <- x; next()}
+  # X = rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
+  
+}
+  
+# X = dplyr:: bind_rows( x )  # will throw error is column types dont match 
+X = rbindlist(x, fill = TRUE) %>% rownames_to_column("id")
+
+saveRDS(X, "rdt_microscopy.rds")
+
+# object.size(X)
+
+```
+
+```{r}
+x = readRDS("rdt_microscopy.rds")
+```
+
+## subset to those with microscopy OR RDT results: 
+
+```{r, include= FALSE, message=""}
+
+dataset = x %>% 
+  mutate( startyear = as.integer( substr( year, 1, 4 ) ),
+            endyear = as.integer(
+              ifelse( nchar(year)>4, 
+                              paste0("20", substr( year, 6, 7 )), 
+                              substr( year, 1, 4 ))
+            )
+            ) %>%
+  filter( 
+          # endyear >= 2006, 
+          # iso3c %in% subsahara$iso3c ,
+          !is.na(weight.c) ,  # only those with weight 
+          ( !is.na(hml32) | !is.na(hml35) ) # non-missing RDT or slide
+          ) %>%
+  rename( 
+            psu = hv021,
+            region = hv024,
+            strata = hv023 ,
+            slide = hml32, 
+            rdt = hml35 
+            ) %>%
+  as.data.table()
+
+dataset.list = dataset %>% count( country, survey, year ) %>% arrange(desc(year) )
+
+cat("There are", nrow(dataset.list), "surveys of", comma(nrow(dataset)), "individuals having RDT or microscopy results")
+
+datatable( dataset.list %>% select(-n) )
+
+```
+
+
+## Average Test Positivity by Country
+
+```{r}
+
+  d_strata = 
+  dataset %>% 
+  # summarise by region, psu
+    group_by( country, survey, year, startyear, endyear, 
+              region, psu ) %>% # hv024 = region, hv023 = sample strata
+    summarise( n = n(),
+               n_slide = sum( slide %in% 0:1 ),
+               n_rdt = sum( rdt %in% 0:1 ),
+               slide_pos  = sum(slide %in% 1),
+               rdt_pos = sum(rdt %in% 1),
+               slidepos_rdtneg = sum( ifelse( slide %in% 1 & rdt %in% 0, 1, 0) ),
+               slideneg_rdtpos = sum( ifelse( slide %in% 0 & rdt %in% 1, 1, 0) ),
+               discordant = sum(slidepos_rdtneg , slideneg_rdtpos, na.rm = TRUE)
+               ) %>%
+    mutate( `%slide` = ifelse( n_slide == 0, NA, slide_pos / n_slide )  ,
+            `%rdt` = ifelse( is.na(n_rdt), NA, rdt_pos / n_rdt ),
+            `%slidepos_rdtneg` = ifelse( is.na(n), NA, slidepos_rdtneg / n) ,
+            `%slideneg_rdtpos` = ifelse( is.na(n), NA, slideneg_rdtpos / n) ,
+            `%discordant` = ifelse( is.na(n), NA, discordant / n ),
+            id = row_number(),
+            iso2c = countrycode( country, "country.name", "iso2c")
+            ) 
+
+d_country = d_strata %>%
+  group_by(country, iso2c, survey, year, startyear, endyear) %>%
+  summarise(
+    n = sum(n),
+    n_rdt = sum(n_rdt),
+    n_slide = sum(n_slide),
+    rdt = 100 * sum(rdt_pos) / n_rdt ,
+    slide = 100* sum(slide_pos) / n_slide ) %>%
+  mutate(
+    id = row_number()
+    
+  ) %>%
+  as.data.frame() 
+
+
+```
+
+```{r, include=FALSE}
+
+    gg = d_country %>% 
+      gather_( "Test", "pct", gather_cols = c('rdt', 'slide') ) %>%
+      ggplot( aes( factor(endyear), pct, label = country, color = country, shape = Test) ) +
+      geom_point( ) +
+      guides( color = FALSE, shape = FALSE ) +
+      labs( x = "Year", y = "% Test Positive", title = "Mean positivity rate of RDT and microscopy") 
+
+
+  ggplotly( gg )
+
+```
+
+##  most recent survey
+
+```{r}
+
+last_parasitemia = 
+  d_country %>%
+  filter( rdt > 0 | slide > 0 ) %>%
+  group_by( country ) %>%
+  arrange( -endyear ) %>%
+  filter( row_number() == 1 ) %>%
+  ungroup %>% arrange( country ) %>%
+  rowwise() %>%
+  mutate(
+    prevalence = ifelse( sum(rdt, slide, na.rm = TRUE) == 0, NA, 
+                         sum(rdt, slide, na.rm = TRUE) /2 )
+  )
+
+```
+
+```{r}
+    gg = last_parasitemia %>% 
+      ggplot( aes( factor(endyear), prevalence, label = country, color = country) ) +
+      geom_point( ) +
+      guides( color = FALSE, shape = FALSE ) +
+      labs( x = "Year", y = "% Test Positive", title = "Mean positivity rate of RDT and microscopy") 
+
+
+  ggplotly( gg )
+
+```
+
+
+# Number of cases reported to WHO
+
+```{r, include = FALSE}
+
+#TOTAL CASES
+# wmr_reports <- read_excel("../WMR/SEE_WMR2016_MalariaData Oct 6.xlsm", 
+#     sheet = "Cases and Deaths") 
+
+# UNDER5 CASES
+wmr_reports <- read_excel("C:/Users/bzp3/dropbox/_Malaria/Projects/WMR/SEE_WMR2016_MalariaData_ML.xlsx", 
+    sheet = "Under5")
+
+# View( wmr_reports %>% filter( Country == "Sierra Leone") )
+
+wmr_cases = wmr_reports %>%
+  rename( rpt_presumed_confirmed= `malaria cases (presumed + conf) _lt 5 yrs`,
+          # calc_presumed_confirmed = `calc - indigenous presumed and confirmed`,
+          # calc_confirmed = `calc - total positive (micr+rdt)`,
+          endyear = Year, 
+          country = Country, 
+          iso2c = organisationunitcode
+          ) %>%
+  filter( iso2c %in% subsahara$iso2c , endyear >= 2006  ) %>%
+  select( country, iso2c, endyear, 
+          rpt_presumed_confirmed 
+          # calc_presumed_confirmed, calc_confirmed 
+          ) %>%
+  mutate( 
+#     presumed_confirmed = ifelse( is.na(rpt_presumed_confirmed), 
+#                                  calc_presumed_confirmed, 
+#                                  rpt_presumed_confirmed) 
+    presumed_confirmed = rpt_presumed_confirmed
+    )
+
+# If missing, fill in from previous year
+
+# wmr_cases %>% kable
+
+wmr_cases. = wmr_cases %>%
+  group_by( country, endyear) %>% 
+  na.locf %>% ungroup %>%
+  mutate( endyear = as.integer(endyear),
+          presumed_confirmed = as.integer(presumed_confirmed)
+          # calc_confirmed = as.integer( calc_confirmed ),
+          # percent_confirmed = calc_confirmed / presumed_confirmed
+          )
+
+wmr_pop <- read_excel("../WMR/SEE_WMR2016_MalariaData Oct 6.xlsm", 
+    sheet = "Population")[1:10] %>%
+  select( Country, ISO_Ctry, Year, Total, `Population risk rate (Total)`) %>%
+  filter( ISO_Ctry %in% subsahara$iso2c , Year >= 2006  ) %>%
+  rename( pop = Total, endyear = Year, country = Country, iso2c = ISO_Ctry) %>%
+  mutate(
+    pop_risk = pop * `Population risk rate (Total)`
+  )
+
+wmr_incidence = inner_join(wmr_cases., wmr_pop) %>% 
+  mutate( inc_total = presumed_confirmed  / pop_risk 
+          # ,
+#           inc_confirmed = calc_confirmed  / pop_risk 
+)
+
+
+```
+
+```{r}
+wmr_incidence %>% 
+  # filter(  endyear == 2015 ) %>%
+  mutate(
+    # presumed_confirmed = comma( presumed_confirmed ),
+    # calc_confirmed = comma( calc_confirmed),
+    pop_risk = comma( pop_risk , digits = 0)
+    ) %>%
+  arrange( -inc_total ) %>% 
+  select( -pop,  -`Population risk rate (Total)`
+          # , 
+         # -calc_presumed_confirmed, -rpt_presumed_confirmed
+         ) %>%
+  datatable( caption = "Total malaria cases reported to WHO")
+
+```
+
+## Note that cases are reported largely from the public reporting system (e.g.RHIS).  the proportion of persons going to a public clinic (versus private) varies between countries.  To better compare the incidence between countries, it may be reasobnable to adjust the rates by dividing by the percent of patients that go to public clinics.  Surveys have the percent of children who access care by provider type, which could be a proxy for percent of all patients.  (World bank household surveys may have better data for adults) . 
+
+# Incidence versus Prevalence (most recent survey)
+
+```{r, include = FALSE}
+
+d = left_join( wmr_incidence , last_parasitemia %>% select(-country), by = c("iso2c", "endyear") ) %>%
+  filter( !is.na(id) ) %>%
+  mutate( label = paste( country, endyear ) )
+
+```
+
+
+```{r}
+
+gg = ggplot(d, aes( prevalence, inc_total, color = country , label = label)) +
+  geom_point() +
+  labs( x = "prevalence (most recent survey)", y = "Presumed and confirmed cases (1/PYO)" ,
+        title = "Incidence v. Prevalence \n(hover to see details)") +
+  guides( color = FALSE )
+
+ggplotly( gg , tooltip = "label")
+
+```
+
+# Incidence versus Prevalence (All surveys)
+
+```{r, include = FALSE}
+
+all_parasitemia = 
+  d_country %>%
+  filter( rdt > 0 | slide > 0 ) %>%
+  group_by( country ) %>%
+  rowwise() %>%
+  mutate(
+    prevalence = ifelse( sum(rdt, slide, na.rm = TRUE) == 0, NA, 
+                         sum(rdt, slide, na.rm = TRUE) /2 )
+  )
+
+d_all = left_join( wmr_incidence , all_parasitemia ) %>%
+  filter( !is.na(id) ) %>%
+  mutate( label = paste( country, endyear ) )
+
+# View( d_all )
+
+```
+
+
+```{r}
+
+gg = ggplot(d_all, aes( prevalence, inc_total, color = country , label = label)) +
+  geom_line( aes( group = country )) +
+  geom_point( aes( size = endyear )) +
+  labs( x = "prevalence (most recent survey)", y = "Presumed and confirmed cases (1/PYO)" ,
+        title = "Incidence v. Prevalence \n(hover to see details)") +
+  guides( color = FALSE )
+
+ggplotly( gg , tooltip = "label")
+
+```
+
