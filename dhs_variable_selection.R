@@ -19,7 +19,7 @@ some_variables = function(){
            "v008", # interview date (CMC)
            "b16", # mothers id/line number
            "v001", "v002", "v003", # cluster, household, woman
-           "hv001", "hv002", "hv003", "midx", "hvidx", "hv111",
+           "hv001", "hv002", "hv003", "midx", "hvidx", "hv111", "hhid",
            
             
            "hv106", # place of residence
