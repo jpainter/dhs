@@ -18,6 +18,13 @@ survey_GIS_data = function(
                 ifelse( country %in% "DRC", "Congo Democratic Republic", country),
                 "/", survey, " ", year) 
   
+  if (!dir.exists(folder)){
+      folder = 
+          paste0(  "../DHS/", country, "/", year, "_", survey, "/"  )
+  }
+  
+  if (!dir.exists(folder)) return
+  
   # print(folder); flush.console()
   
   subfolders <- list.dirs(path =  folder, full.names = TRUE)
