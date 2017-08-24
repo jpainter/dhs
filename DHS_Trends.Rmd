@@ -1,0 +1,184 @@
+---
+title: "DHS Trends"
+author: "jp"
+date: "August 10, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, include=FALSE}
+# libraries ####
+
+library(tidyverse, quietly = TRUE)
+library(readxl)
+library(data.table)
+library(broom)
+
+library(scales, quietly = TRUE)
+library(lubridate)
+# library(dtplyr)
+library(countrycode)
+library(knitr)
+
+library(survey)
+# library(srvyr) # https://cran.r-project.org/web/packages/srvyr/vignettes/srvyr-vs-survey.html
+
+
+# Set location of survey datasets and survey code
+
+## location of DHS survey and code folders.
+## include DHS files as: paste0( dhs_surveys, <dhs file here>)
+dhs_surveys = "../DHS/_Surveys/"
+dhs_code = "../DHS/_Code/"
+dhs_dataset = "../DHS/_Datasets/"
+
+
+```
+
+```{r variables, include=FALSE}
+
+
+variable.doc = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") , sheet = "variables" )
+
+variables <- unique( toupper( variable.doc$variable ) )
+variables = variables[ order(variables) ]
+
+```
+
+```{r dataset}
+
+adm.by.estimates = readRDS( paste0( dhs_dataset, "adm.by.estimates.rds") )
+```
+
+```{r ggplot_country}
+
+g = ggplot( adm.by.estimates, aes( x = year, y = est, group = country, color = country )  )+
+  geom_point() +
+  geom_line() + 
+  facet_grid( var ~ . ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position="none")
+  
+g
+```
+
+```{r years}
+
+main_year = function(x, part ){
+     if ( is.character(x)){
+          as.numeric( unlist( strsplit(x, "-") )[part]  )
+     } else { return(NA)}
+}
+
+
+data = adm.by.estimates %>% 
+  mutate( start_year = sapply(year ,  function(x) main_year(x, 1) ) ) 
+
+data$years = cut(data$start_year, 8)  
+
+g = ggplot( data, aes( x = start_year, y = est, group = country, color = country )  )+
+  geom_point() +
+  geom_line() + 
+  facet_grid( var ~ . ) +
+  scale_x_continuous(breaks = 2000:2017) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position="none")
+g
+```
+
+Varying intercepts
+```{r}
+library(lme4)
+
+fit.glmer = data %>% 
+  nest(-var) %>% # from base R
+  mutate(
+    fit = map( data, 
+               ~ lmer(est ~ start_year +  (1 | country ), data = .)
+               ),
+    fit.results = map(fit, augment)
+  ) %>%
+  unnest( fit.results)
+
+fit.glmer
+```
+
+fitted results
+
+```{r}
+
+g = ggplot( fit.glmer, aes( x = start_year, y = .fitted )  )+
+  geom_point( aes( color = country )) +
+  geom_line(alpha = 1/3, aes(group = country, color = country ) ) + 
+  # geom_line(data = , aes( color = "blue" ) ) + 
+  geom_smooth( se = FALSE, color = "black" ) +
+  facet_grid( var ~ . ) +
+  scale_x_continuous(breaks = 2000:2017) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position="none")
+g
+
+```
+
+```{r}
+
+g = ggplot( fit.glmer, 
+            aes( x = start_year, y = .resid )  
+            ) +
+  geom_line( aes(group = country), alpha = 2/3 ) +
+  geom_smooth( se = FALSE ) + 
+  facet_grid( var ~ . ) +
+  scale_x_continuous(breaks = 2000:2017) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position="none")
+g
+
+```
+
+
+varying intercepts and slopes
+```{r}
+library(lme4)
+
+fit.glmer2 = data %>% filter( start_year >= 2010 ) %>%
+  split(.$var) %>% # from base R
+  map(~ lmer(est ~ start_year +
+               (1 + start_year | country ), data = .)) %>%
+  map(summary) 
+
+fit.glmer2
+```
+
+
+```{r}
+boxes = adm.by.estimates %>% 
+  mutate( start_year = sapply(year ,  function(x) main_year(x, 1) ),
+         years = cut(data$start_year, 8)   
+          ) %>%
+  nest( -country, -start_year, -var ) %>%
+  mutate(  
+    m = map2( est, var, 1000, rnorm )
+  ) %>%
+  summarise( mean = mean( unlist(m)) )
+  
+boxes
+
+
+
+```
+
+
+```{r}
+g = ggplot( boxes, aes( x = start_year, y = median, group = country, color = country )  )+
+  geom_point() +
+  geom_smooth() + 
+  facet_grid( var ~ . ) +
+  scale_x_continuous(breaks = 2000:2017) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(legend.position="none")
+g
+```
+

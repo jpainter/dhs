@@ -1,0 +1,645 @@
+---
+title: "Slide vs RDT"
+runtime: shiny
+output: 
+  # ioslides_presentation 
+  html_document:
+    css: shinyprezcss.css
+    fig_height: 6
+    fig_width: 10
+    number_sections: yes
+    toc: yes
+---
+
+```{r, include = FALSE, cache=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE)
+
+library(data.table)
+library(tidyverse)
+library(stringr)
+library(scales)
+library(survey)
+library(gridExtra)
+library(countrycode)
+library(readr)
+library(readxl)
+library(ggvis)  
+
+```
+
+
+# A Comparison of DHS and MIS malaria parasitemia estimates by microscopy (slides) with RDT 
+
+
+## Main data 
+
+```{r,  include = FALSE}
+
+source("file_list.r")
+
+subsahara = countrycode_data %>%
+  filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
+  select( country.name, iso3c, iso2c ) %>%
+  filter( !country.name %in% "Lesotho") 
+
+
+files = files %>% 
+  mutate( country.name = countrycode(country, "country.name", "country.name")) %>%
+  filter( survey!="", year >= 2006 , country.name %in% subsahara$country.name)
+
+# not_needed = c('Bangladesh', 'Pakistan', 'Philippines', 'Comoros')
+
+survey_list = files %>% count(country, survey, year) %>% select(-n) %>% arrange(desc(year))
+
+nsurveys = nrow(survey_list)
+ncountries = length( unique( files$country ) )
+
+kable(survey_list, row.names = TRUE)
+
+```
+
+```{r, include = FALSE}
+# select variables for this analysis, v
+variables =  c('v000', 
+       'v001', 'v002', 'v003', 'v005', 'v021', 'v023', 'v024', 'v025', 
+       'weight.c', 'weight.hm', 'weight.w', 'weight.h', 
+       'hv001',  'hv002', 'hv003',  'hv005', 'hv007', 'hv021', 'hv022', 'hv023', 'hv024', 'hv025',
+       'hvidx', 'b16',
+       'h22', 'hv105', 'h47', 
+       'hml16', # age in years
+       'hml32', 'hml35' )
+
+```
+
+```{r, include = FALSE, eval= FALSE}
+source("dhs_load_survey.R")
+
+nsurveys = nrow(survey_list)
+
+survey_list = survey_list %>% arrange( desc(year) )
+index = row.names(survey_list)
+
+p <- progress_estimated(nsurveys)
+
+x <- vector("list", length( nsurveys)) 
+
+translate = FALSE  # optional translation of values to label.  
+  # NB: Does not work well for all variables
+
+for (i in seq_along( index ) ){
+  
+   p$pause(0.1)$tick()$print()
+  
+  .country = survey_list[i, ]$country
+  .iso3c = countrycode( survey_list[i, ]$country, "country.name", "iso3c")
+  .survey = survey_list[i, ]$survey
+  .year = survey_list[i, ]$year
+  .survey_name = paste(.survey, .year)
+
+  print( paste(.country, .survey, .year))
+  
+  svy <- try( silent = TRUE,
+    load_survey_object( design = FALSE,
+                        # printout = TRUE ,  # un comment when testing
+                        vars = variables, 
+                        .country = .country, 
+                        .survey = .survey,
+                        .year = .year)
+  )
+  
+  #TODO FILTER RECORDS--apply filter, like keeping only children with parasitemia, is not unnecessarily large
+
+  if ( class(svy) == "try-error" ){ 
+    next()
+    }
+
+  # returns: svy.h, svy.c, svy.w, svy.hm, vars_x, x
+  # svy.h <- svy[[1]]
+  # svy.c <- svy[[2]]
+  # svy.w <- svy[[3]]
+  # svy.hm <- svy[[4]]
+  has_vars = svy[[5]]
+  x[[i]] = svy[[6]] 
+  
+  x[[i]]$country = rep( .country, nrow(x[[i]]) )
+  x[[i]]$iso3c = rep( .iso3c, nrow(x[[i]]) )
+  x[[i]]$year = rep( .year, nrow(x[[i]]) )
+  x[[i]]$survey = rep( .survey, nrow(x[[i]]) )
+
+  # TODO: optional- relate dictionary to survey                    )
+
+  # # TODO: only for columns with >4 values (others easier to keep as numeric)
+  # # Deriving this table should happen once, before loop
+  # v = dd %>% filter( tolower(Item_Name) %in% variables) %>% group_by( Item_Name, label ) %>% 
+  #   summarise( n = n()) %>% group_by( Item_Name) %>% count(Item_Name) %>% filter(nn>4) 
+
+  if (translate){
+    
+      # refine dictionary for this country-survey 
+      dict = dd %>% filter_( ~country == .country , ~survey == .survey, ~year == .year,
+                        ~Item_Name %in% toupper(names(has_vars))
+      )
+     
+    y = x[[i]]
+  
+    for (col in 1:length(colnames(y))){
+      column = tolower( colnames(y)[col] )
+      
+      dict_var = dict %>% 
+        mutate( item_name = tolower(Item_Name)) %>%
+        filter_( ~item_name == column ) %>% # , ~file == "Household Member Recode"
+        count( value, label) %>% select(-n)
+      
+      old_value = y[, col]
+      new_value = dict_var[ match( old_value, dict_var$value ), ]$label
+      y[, col] = ifelse( is.na( new_value), old_value, new_value)
+    }
+      x[[i]] = y
+}
+
+  # if (is.null(X) ){ X <- x; next()}
+  # X = rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
+  
+}
+  
+# X = dplyr:: bind_rows( x )  # will throw error is column types dont match 
+X = rbindlist(x, fill = TRUE) %>% rownames_to_column("id")
+
+saveRDS(X, "rdt_microscopy.rds")
+
+# object.size(X)
+
+```
+
+```{r}
+x = readRDS("rdt_microscopy.rds")
+```
+
+## subset to available surveys with microscopy and RDT results: 
+
+```{r}
+
+dataset = x %>% 
+  mutate( startyear = as.integer( substr( year, 1, 4 ) ),
+            endyear = as.integer(
+              ifelse( nchar(year)>4, 
+                              paste0("20", substr( year, 6, 7 )), 
+                              substr( year, 1, 4 ))
+            )
+            ) %>%
+  filter( 
+          # endyear >= 2006, 
+          # iso3c %in% subsahara$iso3c ,
+          !is.na(weight.c) ,  # only those with weight 
+          !is.na(hml32) , 
+          !is.na(hml35)
+          ) %>%
+  rename( 
+            psu = hv021,
+            region = hv024,
+            strata = hv023 ,
+            slide = hml32, 
+            rdt = hml35 
+            ) %>%
+  as.data.table()
+
+dataset.list = dataset %>% count( country, survey, year ) %>% arrange(desc(year) )
+
+cat("There are", nrow(dataset.list), "surveys comprising", comma(nrow(dataset)), "individuals having both slide and RDT result.")
+
+kable( dataset.list %>% select(-n) , row.names = TRUE)
+
+```
+
+## data dictionary
+
+```{r, message=FALSE, warning=FALSE, include = FALSE}
+# get dictionary vales from children's file
+
+  # dd <-readRDS("dictionaryNew.rds")  # about 6 sec
+
+#Which files have treatment variables h37 and ml13?  both in children's file
+# count( filter(dd, grepl( "H37|ML13", Item_Name )), file)
+
+  dd = readRDS("dictionaryNew.rds")  %>% ungroup %>%
+    filter( Item_Name %in% toupper(variables),
+            country %in% x$country,
+            survey %in% x$survey,
+            year %in% x$year
+            ) %>%
+    mutate(
+      startyear = as.integer( substr( year, 1, 4 ) ) ,
+      endyear = as.integer(
+              ifelse( nchar(year)>4, 
+                              paste0("20", substr( year, 6, 7 )), 
+                              substr( year, 1, 4 ))
+            ),
+      Item_Label = tolower( Item_Label ) ,
+      Item_Name = tolower( Item_Name)
+    ) %>%
+    filter( endyear >= 2006 ) 
+  
+  # View(dd)
+
+```
+
+## Average Test Positivity by Country
+
+```{r}
+
+  # percent forumula that respects zero
+  my.percent<- function(x) {
+    if(length(x)==1) if(x==0) return(paste0(0,"%") )
+    return(percent(x) )
+  }
+
+  d_strata = 
+  dataset %>% 
+  # summarise by region, psu
+    group_by( country, survey, year, region, psu ) %>% # hv024 = region, hv023 = sample strata
+    summarise( n = n(),
+               n_slide = sum( slide %in% 0:1 ),
+               n_rdt = sum( rdt %in% 0:1 ),
+               slide_pos  = sum(slide %in% 1),
+               rdt_pos = sum(rdt %in% 1),
+               slidepos_rdtneg = sum( ifelse( slide %in% 1 & rdt %in% 0, 1, 0) ),
+               slideneg_rdtpos = sum( ifelse( slide %in% 0 & rdt %in% 1, 1, 0) ),
+               discordant = sum(slidepos_rdtneg , slideneg_rdtpos, na.rm = TRUE)
+               ) %>%
+    mutate( `%slide` = my.percent(slide_pos / n_slide),
+            `%rdt` = my.percent( rdt_pos / n_rdt),
+            `%slidepos_rdtneg` = my.percent( slidepos_rdtneg / n),
+            `%slideneg_rdtpos` = my.percent( slideneg_rdtpos / n),
+            `%discordant` = my.percent( discordant / n ),
+            id = row_number()
+            ) 
+
+d_country = d_strata %>%
+  group_by(country, survey, year) %>%
+  summarise(
+    n = sum(n),
+    n_rdt = sum(n_rdt),
+    n_slide = sum(n_slide),
+    rdt = 100 * sum(rdt_pos) / n_rdt ,
+    slide = 100* sum(slide_pos) / n_slide ) %>%
+  mutate(
+    id = row_number()
+  ) %>%
+  as.data.frame() 
+
+
+```
+
+```{r, cache = FALSE}
+
+  survey_label <- function(x) {
+      if(is.null(x)) return(NULL)
+      paste( d_country[x$id, "country"], d_country[x$id, "survey_name"])
+    }
+#     
+    reference_line = data.frame( x= c(0,85), y = c(0,85))
+    
+    d_country %>%
+      ggvis(~slide, ~rdt) %>%
+      layer_model_predictions( model = "lm", se = TRUE) %>%
+      layer_points( fill = ~country, key := ~id) %>%
+      add_axis("x", title = "Slide % Positive") %>%
+      add_axis("y", title = "RDT % Positive") %>%
+      # scale_numeric("x", domain = c(0, 85)) %>%
+      # scale_numeric("y", domain = c(0, 85)) %>%
+      layer_paths( data = reference_line, x = ~x, y= ~y, stroke:="green") %>%
+      add_tooltip( survey_label(), "click") 
+#
+ 
+# lm regression
+    linear = lm( rdt ~ slide, data = d_country)
+    # summary(linear)
+    `Linear Regression` = as.data.frame(cbind(round(linear$coefficients, 2),
+                                              confint(linear))
+                                        )
+    names(`Linear Regression`) = c("Estimate", "LL", "UL")
+    rownames(`Linear Regression`) = c("Intercept", "Slope")
+
+    renderTable( `Linear Regression` )
+```
+
+## Surveys Available through DHS^[http://dhsprogram.com/data/available-datasets.cfm]
+
+```{r, echo=FALSE, message= FALSE, cache = FALSE}
+
+  observe({
+    if (!is.null(input$myTable) && input$myTable != -1)
+      updateTextInput(session, "myTextArea", value = retrieveAbstract(input$myTable))
+  })
+    
+renderTable({ d_country  })
+
+```
+
+## country-region
+
+# compare results of RDT and sLide
+
+```{r}
+  
+  # summarise by psu
+  compare = 
+    dataset %>% 
+    mutate(
+      survey_name = paste(country, survey, year, sep = "_")
+      ) %>%
+    group_by( country, survey_name, region, psu ) %>%
+    summarise( n = n(),
+               n_slide = sum( slide %in% 0:1 ),
+               n_rdt = sum( rdt %in% 0:1 ),
+               slide_pos  = sum(slide %in% 1),
+               rdt_pos = sum(rdt %in% 1),
+               slidepos_rdtneg = sum( ifelse( slide %in% 1 & rdt %in% 0, 1, 0) ),
+               slideneg_rdtpos = sum( ifelse( slide %in% 0 & rdt %in% 1, 1, 0) ),
+               discordant = sum(slidepos_rdtneg , slideneg_rdtpos, na.rm = TRUE)
+               ) %>%
+    mutate( `%slide` = my.percent(slide_pos / n_slide),
+            `%rdt` = my.percent( rdt_pos / n_rdt),
+            `%slidepos_rdtneg` = my.percent( slidepos_rdtneg / n),
+            `%slideneg_rdtpos` = my.percent( slideneg_rdtpos / n),
+            `%discordant` = my.percent( discordant / n )
+            ) 
+
+
+```
+
+```{r, echo=FALSE, message=FALSE, cache= FALSE}
+    
+  survey_label_cr <- function(x) {
+      dd = d_cr()
+      if(is.null(x)) return(NULL)
+      paste( dd[x$id, "country"], 
+             "region", dd[x$id, "region"], 
+             dd[x$id, "survey_name"], 
+             "n=", dd[x$id, "n"])
+    }
+
+  d_cr =  
+    reactive({
+      compare %>%
+      group_by(country, survey_name, region) %>%
+      summarise(
+        n = sum(n),
+        n_rdt = sum(n_rdt),
+        n_slide = sum(n_slide),
+        rdt = 100 * sum(rdt_pos) / n_rdt ,
+        slide = 100* sum(slide_pos) / n_slide 
+                ) %>%
+      as.data.frame() %>%
+      mutate( id = row_number()) 
+  })    
+
+
+    d_cr %>% 
+      ggvis(~slide, ~rdt ) %>%
+      layer_model_predictions( model = "lm", se = TRUE
+                               ) %>%
+      ungroup() %>%
+      layer_points( fill = ~survey_name, key := ~id) %>%
+      add_tooltip( survey_label_cr, "hover") %>%
+      add_axis("x", title = "Slide % Positive") %>%
+      add_axis("y", title = "RDT % Positive") %>%
+      scale_numeric("x", domain = c(0, 85)) %>%
+      scale_numeric("y", domain = c(0, 85)) %>%
+      layer_paths( data = reference_line, x = ~x, y= ~y)
+    
+# Regression    
+  table.cr = reactive({
+      linear.cr =  lm( rdt ~ slide, data = d_cr() ) 
+      t = as.data.frame(cbind(round(linear.cr$coefficients, 2),
+                                              confint(linear.cr))
+                                        )
+      names(t) = c("Estimate", "LL", "UL")
+      rownames(t) = c("Intercept", "Slope")
+      return(t)
+  })
+
+  renderTable( table.cr() )
+  
+    
+```
+
+## Interactive Country Chart 
+
+```{r , echo=FALSE, message= FALSE, eval=FALSE}
+# By REGION
+    
+renderText( "For all countries there is some disagreement between the population rates of RDT and microcopy.  For some, there is substantial deviation. See: Cote d'Ivoire and Tanzania as examples")
+
+inputPanel(
+
+  selectInput("Country", label = "Country",
+              choices = country, selected = "")
+)
+ 
+    survey_label <- function(x) {
+      dd = d_r()
+      if(is.null(x)) return(NULL)
+      # paste(nrow(dd))
+      paste( dd[x$id, "country"], 
+             "region", dd[x$id, "region"], 
+             dd[x$id, "survey_name"], 
+             "n=", dd[x$id, "n"])
+    }
+
+  
+  d_r =  reactive({
+    compare %>%
+    # d[ country_selected, ] %>% 
+    filter( (country %in% 
+               ifelse( length(eval(input$Country))==0, 
+                                         "Angola",
+                                         eval(input$Country))) 
+            ) %>%
+    # filter( (country %in% country_selected) ) %>%
+    group_by(country, region, survey_name) %>%
+    summarise(
+      n = sum(n),
+      n_rdt = sum(n_rdt),
+      n_slide = sum(n_slide),
+      rdt = 100 * sum(rdt_pos) / n_rdt ,
+      slide = 100* sum(slide_pos) / n_slide 
+              ) %>%
+    as.data.frame() %>%
+    mutate( id = row_number()
+            ) 
+  })    
+
+    d_r() %>% 
+      group_by( survey_name) %>%
+      ggvis(~slide, ~rdt ) %>%
+      layer_model_predictions( model = "lm", se = TRUE
+                               ) %>%
+      ungroup() %>%
+      layer_points( fill = ~survey_name, key := ~id) %>%
+      add_tooltip( survey_label, "hover") %>%
+      add_axis("x", title = "Slide % Positive") %>%
+      add_axis("y", title = "RDT % Positive") %>%
+      scale_numeric("x", domain = c(0, 85)) %>%
+      scale_numeric("y", domain = c(0, 85)) %>%
+      layer_paths( data = reference_line, x = ~x, y= ~y)
+
+# Regression    
+  table.r = reactive({
+      linear.r =  lm( rdt ~ slide, data = d_r() ) 
+      # t = as.data.frame(round(linear.r$coefficients, 2))
+      t = as.data.frame(cbind(round(linear.r$coefficients, 2),
+                                              confint(linear.r))
+                                        )
+      names(t) = c("Estimate", "LL", "UL")
+      rownames(t) = c("Intercept", "Slope")
+      return(t)
+  })
+
+  renderTable( table.r() )
+  
+      
+```
+
+# A Comparison of Test Standard Distribution 
+
+## Cluster Standard Distribution within Region
+
+Within each Region, the percent RDT and percent slide positive are calculated for each survey cluster.  Comparing the variance of these values may indicate the relative level of accuracy and repeatability of each method.
+
+
+```{r, echo=FALSE, variance,  message= FALSE, eval=TRUE}
+# 
+ 
+  d_psu =  reactive({
+    compare %>%
+    filter( (country %in% 
+               ifelse( length(eval(input$Country))==0, 
+                                         "Angola",
+                                         eval(input$Country))) 
+            ) %>%
+    group_by(country, survey_name, region, psu ) %>%
+    summarise(
+      n = sum(n),
+      n_rdt = sum(n_rdt),
+      n_slide = sum(n_slide),
+      rdt = 100 * sum(rdt_pos) / n_rdt ,
+      slide = 100* sum(slide_pos) / n_slide 
+              ) %>%
+    as.data.frame() %>%
+   gather(test, perc_pos, rdt, slide) %>%
+    mutate( id = row_number(),
+      survey_name = paste(country, survey_name)) %>%
+   arrange(country, survey_name, region, psu, test)
+    
+  })
+
+
+
+  # ggvis 
+#     d_psu %>% 
+#       ggvis(~factor(region), ~test) %>%
+#       ungroup() %>%
+#       layer_points( fill = ~test, key := ~id) %>%
+#       add_tooltip( survey_label, "hover") %>%
+#       add_axis("x", title = "Region") %>%
+#       add_axis("y", title = "% Positive") %>%
+#       # scale_numeric("x", domain = c(0, 85)) %>%
+#       scale_numeric("y", domain = c(0, 85)) 
+  
+  
+   
+renderPlot({
+
+     a = d_psu() %>% 
+       mutate(region = factor(region)) %>%
+      ggplot( aes(region, perc_pos)) +
+      geom_boxplot(aes(fill = test)) +
+       facet_grid(survey_name ~ .)
+    
+     b = d_psu() %>% 
+       mutate(region = factor(region) )%>%
+       group_by(survey_name, region, test) %>%
+       summarise(
+         std = sd(perc_pos)
+       ) %>%
+      ggplot( aes(region, std)) +
+      geom_point(aes(color = test), size = 4, 
+                 position = position_jitter(w = 0.1, h = 0.1)) +
+      facet_grid(survey_name ~ .)
+
+  grid.arrange(a,b, ncol=1)    
+})   
+
+# renderTable(d_psu())
+```
+
+## Pooled Standard Distribution
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE, pooled_variance}
+
+  d_psus =  
+    compare %>%
+    group_by(country, survey_name, region, psu ) %>%
+    summarise(
+      n = sum(n),
+      n_rdt = sum(n_rdt),
+      n_slide = sum(n_slide),
+      rdt = 100 * sum(rdt_pos) / n_rdt ,
+      slide = 100* sum(slide_pos) / n_slide 
+              ) %>%
+    as.data.frame() %>%
+   gather(test, perc_pos, rdt, slide) %>%
+    mutate( 
+      id = row_number()
+            ) %>%
+   arrange(country, survey_name, region, psu, test)
+    
+# weighted std across regions 
+  pooled_psu= 
+    d_psus %>% 
+       mutate(region = factor(region) ,
+              test = factor(test)
+              ) %>%
+       group_by(country, survey_name, region, test) %>%
+       summarise(
+         n = sum(n),
+         std = sd(perc_pos)
+       ) %>%
+      group_by(country, survey_name, test) %>%
+    summarise(
+      n = n(),
+      pooled_sd = sqrt( sum(std^2 * (n - 1)) / (sum(n - 1)) )
+    ) %>%
+    mutate(
+      id = paste(country, survey_name)
+    )
+    
+# nrow(pooled_psu)
+  
+  ggplot(pooled_psu, aes(x = test, y= pooled_sd, color = test) ) +
+           geom_point() + 
+    geom_line( aes(group = id))
+  
+  pooled_psu %>% 
+   spread(test, pooled_sd) %>%
+  ggplot(aes(x = slide, y= rdt) ) + 
+    geom_point() + 
+    geom_smooth(method = "lm") +
+    geom_abline(slope = 1 , intercept = 0)
+    
+# weighted std across all surveys 
+  pooled_survey_sd= 
+    pooled_psu %>% 
+    group_by(test) %>%
+    summarise(
+      pooled_sd = sqrt( sum(pooled_sd^2 * (n - 1), na.rm = TRUE) / (sum(n - 1, na.rm = TRUE)) )
+    ) 
+    
+  renderTable( pooled_survey_sd )
+```
+
+
+
+

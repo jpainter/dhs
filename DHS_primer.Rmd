@@ -1,0 +1,428 @@
+---
+title: "DHS Primer"
+author: "jp"
+date: "Apr-10-2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+**Download** the following folders into your DHS directory; use this directory to create Rstudio project, 'DHS'
+
+- folder of R codes JP wrote for working with DHS data; save as _Code : https://www.dropbox.com/sh/q34fr9p7oz5sikp/AAAj82RSUYgC___WSssMcEOga?dl=0
+
+- folder of R codes JP wrote for working with DHS data; save as _Surveys:
+https://www.dropbox.com/sh/ywapooz9revbyuq/AAAakGYF1c2aYx-iNZ7vvzc5a?dl=0
+
+- folder of various DHS manuals for reference:
+https://www.dropbox.com/sh/bic935uqkwor6vq/AABi4jSePpjYI0MzegdM2JQza?dl=0
+
+
+
+# 1. Load packages for analyses.  If a library does not load, install it.
+
+```{r, include= FALSE}
+
+library(readxl)
+library(knitr)
+library(scales, quietly = TRUE)
+library(data.table)
+library(dtplyr)
+library(matrixStats)
+library(ggplot2)
+
+library(countrycode)
+
+library(survey)
+
+library(tidyverse, quietly = TRUE)
+
+# set some options for this report.  See knitr package
+opts_chunk$set( echo = TRUE, cache = FALSE )
+
+```
+
+- Set location of survey datasets and survey code
+
+```{r}
+# location of DHS survey and code folders.  
+# include DHS files as: paste0( dhs_surveys, <dhs file here>)
+dhs_surveys = "../DHS/_Surveys/"
+dhs_code = "../DHS/_Code/"
+```
+
+# 2. Get list of available survey files by calling the script, file_list.r, then filter to those in subsahara since 2000.  Print list of surveys by country and year.
+
+```{r}
+
+source( paste0( dhs_code, "file_list.r") )
+
+subsahara = countrycode_data %>%
+  filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>% 
+  rename( country.name = country.name.en) %>%
+  select( country.name, iso3c ) %>%
+  filter( !country.name %in% "Lesotho") 
+
+
+files = files %>% as.tibble() %>%
+ filter( year >= 2000 ) %>%
+  # convert to standard country names in countrycode package, which
+  # avoids having 'two' countries like Tanzania and United Republic of Tanzania
+  mutate( country.name = countrycode(country, "country.name.en", "country.name.en")) %>%
+  rename( Country = country.name ) %>%
+  filter(Country %in% subsahara$country.name)
+
+# View(files)
+
+# not_needed = c('Bangladesh', 'Pakistan', 'Philippines', 'Comoros')
+
+survey_list = files %>% count(Country, survey, year) %>% select(-n)
+# View(survey_list)
+
+nsurveys = nrow(survey_list)
+ncountries = length( unique( files$Country ) )
+
+cat( "There are", nsurveys, "surveys since 2000 from",  ncountries ,"countries in Subsaharan Africa.")
+
+kable( survey_list %>% arrange( Country, year ) %>% select( Country, year, survey) )
+```
+
+# 3. Load data dictionary ( takes ~20 seconds--it is big )
+
+```{r}
+
+# to update dictionaryNew.rds, run extractMAPdocs.R 
+dd <-readRDS( paste0( dhs_surveys, "dictionaryNew.rds")  ) %>% 
+  as.tibble() %>%
+  filter( year >= 2000 ) %>%
+  mutate( country.name = countrycode(country, "country.name.en", "country.name.en")) %>%
+  rename( Country = country.name ) %>%
+  filter(Country %in% subsahara$country.name)
+
+# about 6 sec
+
+# check if dictionary available for every survey
+dd_survey_list = dd %>% count(Country, survey, year) %>% select(-n)
+
+dd_nsurveys = nrow(dd_survey_list)
+dd_ncountries = length( unique( dd$Country ) )
+
+cat( "There are dictionary files for", dd_nsurveys, "surveys since 2000 from",  dd_ncountries ,"countries in Subsaharan Africa.")
+
+cat( "Dictionary files are missing for: ")
+
+kable( anti_join( survey_list, dd_survey_list) )
+
+```
+
+
+# 4. Select some **individual** variables of interest   
+
+```{r}
+
+individual_vars  = c( 
+        'hml32', 'hml35', # slide/micrscopy and RDT results
+        'hml1', "hml4", "hml5", "hml6", "hml7", "hml8",  # bednets
+        'hml19', 'hml20', 'hml12', # slept under llin
+        'hv102', # de jure member of household
+        'hv103', # de facto memeber of household (slept there last night)
+        'hml16', # corrected age in years
+        "hv253", # dwelling sprayed (some multiple responses)
+        "hv001", "hv002", 'HV003', 'HV005', 
+
+        "HV021", # psu: enumeration area or sample cluster
+        "HV022", # Sample stratum number
+        "hv023", # STRATA
+        "hv024", # region
+        "HV025" , # type of residence : urban rural
+        
+        'HHID', 'HVIDX',
+        "HV008", # date of interview
+        "HV270", # wealth index
+        "latitude", "longitude"
+       )
+  
+variables <- unique( toupper( individual_vars) )
+variables = variables[ order(variables) ]
+
+
+```
+
+And get their most frequent definintion.  Select the first available definition from dictionary.  Note that some variables may be defined differently for some countries, which will not be apparent here. In general, the variable names do not change.  
+
+
+```{r}
+
+# translation table of dhs file codes to file names.  My catalog of file has a mix...
+filecodes = data_frame( abrev  = c("kr", "br", "ir", "pr", "hr", "hr" ), 
+                            file = c("Children's Recode","Supplemental Births Recode",
+                                     "Individual Recode",
+                                     "Household Member Recode", "Household Recode", 
+                                     "Supplemental Household Recode")) 
+
+
+variable_defn = dd %>% as.data.frame() %>%
+  # semi_join( parasitemia_surveys, by = c("country", "survey", "year") ) %>%
+    filter( Item_Name %in% variables ) %>%
+    filter( !grepl( "NA", Item_Label, ignore.case = FALSE, fixed = TRUE) ,
+            !grepl( "Presence", Item_Label, ignore.case = FALSE, fixed = TRUE)
+            ) %>%
+    left_join( filecodes , by = "file", copy = TRUE) %>%
+    mutate( 
+        abrev = ifelse( is.na(abrev) , tolower( substr(file, 3, 4) ) , abrev)
+        ) %>%
+    left_join( filecodes , by = "abrev", copy = TRUE) %>%
+    rename( file = file.y ) %>%
+    filter( grepl( "member", file, ignore.case= T)) %>%
+    count( Item_Name, Item_Label) %>%
+    select( -n) %>%
+    arrange( Item_Label ) %>%
+    as.data.frame()
+
+kable( variable_defn %>% arrange(Item_Name)) 
+```
+
+Then check to see which survey file type, e.g. household member or children's, has the variables of interest.  The number in the table correseponds to the number of time the variable is found in each survey file type.  Most of our variables of interest are in the household member recode file.  [NB: Variables for calculating mortality rates (not included in this list of variables) are found children's file]
+
+```{r}
+
+ 
+# list variables and the files where each is found
+variables_and_files = dd %>% as.data.frame() %>%
+    filter( Item_Name %in% variables ) %>%
+    filter( !grepl( "NA", Item_Label, ignore.case = FALSE, fixed = TRUE) ,
+            !grepl( "Presence", Item_Label, ignore.case = FALSE, fixed = TRUE)
+            ) %>%
+    left_join( filecodes , by = "file" ) %>%
+    mutate( 
+        abrev = ifelse( is.na(abrev) , tolower( substr(file, 3, 4) ) , abrev)
+        ) %>%
+    left_join( filecodes , by = "abrev", copy = TRUE) %>%
+    rename( file = file.y ) %>%
+    count( Item_Name, Item_Label, country, survey, year, file ) %>%
+    mutate( has = ifelse( n > 0, "Y", NA )) %>% 
+    ungroup() %>%
+    count( Item_Name, file ) %>%
+    spread( file, nn, fill = "N" )
+
+# View(dataset_surveys)
+
+kable(variables_and_files)
+```
+
+# 5. Open a dataset.  E.g. Benin, 2010, Household member recode dataset, using the function load_survey_file()
+
+```{r}
+
+source( paste0( dhs_code, 'load_survey_file.R' ) )
+
+dataset = load_survey_file( 
+                        # printout = TRUE ,  # un comment when testing
+                        vars = variables, 
+                        .country = "Kenya", 
+                        .survey = "DHS",
+                        .year = "2014",
+                        .file = "household member recode" ,
+                        geo = TRUE ,
+                        design = FALSE # if TRUE, returns svy.design object
+                        )
+
+```
+
+# 6. Create survey design object that defines complex survey structure
+
+```{r}
+      x = dataset %>%
+        mutate( weight.hm = as.numeric( hv005 / 1000000 ),
+                strata = do.call( paste , dataset[ , c( 'hv024' , 'hv025' ) ] )
+                ) %>%
+        filter( !is.na(weight.hm), !is.na(hv021) )
+
+      svy <-
+        svydesign(
+          ~hv021  , # psu
+          strata = ~ strata ,
+          data =  x ,
+          weights = ~ weight.hm
+        )
+```
+
+
+# 7. Note that steps 5 and 6 can be combined into one by calling load_survey_file() with parameter design = TRUE.  (at the moment, this option only works for the household member file; creating appropriate survey design object ofr other files is on the todo list)
+
+```{r, eval=FALSE}
+
+source( paste0( dhs_code, 'load_survey_file.R' ) )
+
+svy = load_survey_file( 
+                        # printout = TRUE ,  # un comment when testing
+                        vars = variables, 
+                        .country = "Benin", 
+                        .survey = "Standard DHS",
+                        .year = "2011-12",
+                        .file = "household member recode" ,
+                        geo = TRUE ,
+                        design = TRUE # if TRUE, returns svy.design object
+                        )
+  
+
+```
+
+# 8. Modify/translate variables as needed. 
+
+First, add variable for easy counting number of respondents and survey sample size
+
+```{r}
+
+### define a variable for easy counting
+svy = update(svy,  one = 1 )
+
+# respondents
+svyby( ~one , ~one , svy , unwtd.count )
+  
+# survey sample size
+svytotal( ~one , svy ) 
+
+
+```
+
+I have a spreadsheet of code translations that can be used to 'improve' variables (see problem with estimating parasitemia, below), typically by dropping unhelpful values and by re-classifying long lists of values into groups of similar values (see provider types) 
+
+```{r}
+
+variable.doc = read_excel( paste0( dhs_code, "survey_definitions.xlsx"), sheet = 'definitions' )
+                           
+cluster.summary.nse = filter(variable.doc, !is.na(Code) , Applies_to == "cluster.summary") %>% 
+   select(Variable, Code)  %>% as.list()
+
+cluster.mutate.nse = filter(variable.doc, !is.na(Code) , Applies_to == "cluster.mutate") %>% 
+   select(Variable, Code)  %>% as.list()
+
+```
+
+
+## - Example of creating cluster with definitions using 'nse' form of dplyr verbs (e.g. summarise_ vs. summarise)
+
+```{r}
+## Cluster dataset ####
+
+cluster = indiv %>%
+ 
+   # group by household
+   group_by( country, iso3, survey, year, hv001, hv002) %>%
+   
+   mutate( 
+      persons.h = n()
+      )  %>% 
+   
+   # group by household
+   group_by( country, iso3, survey, year, hv001) %>%
+   
+   summarise_( .dots = setNames(
+      as.list( cluster.summary.nse$Code ) ,
+      cluster.summary.nse$Variable
+   )
+   )  %>%
+      
+   mutate_( .dots = setNames(
+      as.list( cluster.mutate.nse$Code ) ,
+      cluster.mutate.nse$Variable
+   )
+   )  %>% 
+   
+   mutate( 
+      
+      survey_year = paste( survey, year),
+      
+      pct.RDT =  RDT / n_RDT ,
+      pct.slide = slide / n_slide ,
+      pct.parasit = parasit / n_parasit ,
+      
+      pct.net.itn = slept.itn / slept,
+      pct.slept = slept / persons 
+      
+   )  %>%
+   
+   ungroup
+
+
+```
+
+
+# 9. Estimate parasitemia
+
+## - first by slide 
+- note that hml32 has values for 6 and 7, which overestimates the mean
+- need to set values 6 and 7 to NA, then recalculate mean
+
+```{r}
+
+# national parasitemia as measured by slide positivity
+svymean( ~ hml32 , svy , na.rm = TRUE )
+
+### WARNING ## see svy_histogram in section 10.
+svytable( one ~ hml32 , svy )
+
+
+## lookup values 6 and 7 in data dictionary
+dd %>% filter( Item_Name %in% 'HML32' , 
+               country %in% 'Benin', survey %in% 'Standard DHS', year %in% '2011-12',
+               file %in% 'Household Member Recode')
+
+## need to set values 6 and 7 to NA
+svy = update(svy,  slide = ifelse( hml32 %in% 0:1, hml32, NA ) )
+svymean( ~ slide , svy , na.rm = TRUE )
+
+```
+
+## - then by RDT 
+
+```{r}
+# national parasitemia as measured by RDT positivity
+svymean( ~ hml35 , svy , na.rm = TRUE )
+svytable( one ~ hml35 , svy )
+
+## lookup values in data dictionary
+dd %>% filter( Item_Name %in% 'HML35' ,
+               country %in% 'Benin', survey %in% 'Standard DHS', year %in% '2011-12',
+               file %in% 'Household Member Recode')
+
+svy = update(svy,  rdt = ifelse( hml35 %in% 0:1, hml35, NA ) )
+svymean( ~ rdt , svy , na.rm = TRUE )
+
+
+```
+
+# 10. Estimate parasitemia by region
+
+```{r}
+svyby( ~ slide , ~ hv024, svy, svymean, na.rm = TRUE )
+  
+svyby( ~ rdt , ~ hv024, svy, svymean, na.rm = TRUE )
+
+svyby( ~ rdt , ~ hv024 + hv025, svy, svymean, na.rm = TRUE ) # by region and urban/rural
+```
+
+
+# 11. Charts by calling convenience functions in svy_charts.R (jp wrote, so caveat emptor)
+
+## Forest plot
+
+```{r}
+
+source( paste0( dhs_code, 'dhs_charts.R') )
+
+svy_forest_by(.var="hml32", .by = "hv025", .subtitle = "Parasitemia (microscopy)", 
+              survey = svy,
+              .country = "Benin", .survey = "Standard DHS", .year = "2011-12",
+              .dictionary = dd)
+
+```
+
+## histogram
+
+```{r}
+svy_histogram("hml32", survey = svy, .country = "Benin", .survey = "Standard DHS", .year = "2011-12", .dictionary = dd)
+
+svy_histogram("slide", survey = svy, .country = "Benin", .survey = "Standard DHS", .year = "2011-12", .dictionary = dd)
+```
