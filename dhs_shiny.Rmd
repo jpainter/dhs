@@ -354,8 +354,11 @@ data_dictionary = readRDS( paste0( dataset_folder, 'dictionaryNew.rds') )
 output$dictionary  = DT::renderDataTable({
   if ( is.null( svy()) ){ return()}
   
-  dictionary = data_dictionary %>% filter(country == input$Country, 
-                                          paste(survey,year) == input$survey)
+  dictionary = data_dictionary %>% 
+    filter(country == input$Country, 
+           paste(survey,year) == input$survey ,
+           tolower(Item_Name) %in% variables )
+            
                 
   DT::datatable(dictionary, 
                 options = list(orderClasses = TRUE, pageLength = 20))
