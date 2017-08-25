@@ -36,7 +36,6 @@ dataset_folder = "../DHS/_Datasets/"
 
 ```
 
-
 ```{r surveys}
 # get list of surveys and files ####
 source( paste0( code_folder , "file_list.r") )
@@ -188,13 +187,69 @@ observe({
 })
 ```
 
-
 ```{r get_survey_functions}
 
 # source( paste0( code_folder , "dhs_load_survey.R" ) )
 
 source( paste0( code_folder, "getSurveyGIS.R") )
 source( paste0( code_folder, 'load_survey_file.R' ) )
+
+
+```
+
+```{r variables}
+library(readxl)
+
+variable.doc = read_excel( paste0( code_folder, "dhs_variable_definitions.xlsx") 
+                           )
+
+individual_vars  = c(
+   'hml32', 'hml35', # RDT and micrscopy
+   'hml1', # number of mosquito bednets
+   "hml4", # months ago net obtained.  (96 = more than 3 years ago; )
+   "hml5", # net treated with insecticide when bought (e.g. ITN)
+   "hml6", # net treatment status
+   "hml7", # brand of bednet
+   "hml8",  # net treated since receiving
+   "hml9", # time since last retreatment
+   "hml10" , # ITN
+   "hml11" , # number of persons who slept under this net (5 = 5+, 9 = missing)
+   "hml12", # type of net person slept under
+   "hml19" , # person slept under an ever-treated net
+   'hml20', # person slept under an llin
+
+   'hv227', # has a bednet for sleeping
+   'hv228', # children under 5 slept under bednet (e.g. all, some, none; 9 = missing )
+   "hv253", # dwelling sprayed (some multiple responses)
+
+   'hv102', # de jure member of household
+   'hv103', # de facto memeber of household (slept there last night)
+   'hml16', # corrected age in years (0:96)
+   'hml16a' , # for children, corrected age in months
+
+   "hv000", # country and phase
+   "hv001", # cluster number
+   "hv002", # household number
+   'HV003', # line number of respondent answering questions
+   'hv004' ,  # ultimate area unit ????
+   'HV005', # household sample wieght (6 decimals )
+
+   "HV021", # psu: enumeration area or sample cluster
+   "HV005", # spample weight (divide by 1E6)
+   "HV022", # Sample stratum number
+   "hv023", # STRATA
+   "hv024", # region
+   "HV025" , # type of residence : urban rural
+
+   'HHID', # case identification ????
+   'HVIDX', # line number (1 to 90)
+   "HV008", # date of interview
+   "HV270", # wealth index
+   "latitude", "longitude"
+)
+
+variables <- unique( tolower( individual_vars) )
+variables = variables[ order(variables) ]
 
 
 ```
@@ -214,19 +269,54 @@ country =  filter( f, country %in% "Angola" & survey_year %in% "MIS 2011") %>% .
 survey =  filter( f, country %in% "Angola" & survey_year %in% "MIS 2011") %>% .$survey
 year =  filter( f, country %in% "Angola" & survey_year %in% "MIS 2011") %>% .$year
 
-svy = load_survey_file( .country = country,
+# load file
+x = load_survey_file( .country = country,
                     .survey = survey ,
                     .year = year, 
+                    vars = variables ,
                     geo = FALSE,
-                    design = TRUE ,
+                    design = FALSE ,
                     dhs_code = code_folder ,
                     dhs_surveys = survey_folder
                     )
 
-svy =  update( svy, 
+# transform variables as needed
+
+# NB: all references to survey variable should be lower case (eg hv227, not HV227)
+individual.mutate.nse = filter(
+     variable.doc,
+     !is.na(Code) ,
+     Applies_to == "indiv",
+     !(exclude %in% 1)
+     ) %>%
+     select(Variable, Code)  %>% as.list()
+
+indiv = x %>%
+
+     mutate_( .dots = setNames(
+          individual.mutate.nse$Code ,
+          individual.mutate.nse$Variable
+     )  
+     ) %>%
+   mutate( rowid = row_number()) %>%  # use rowid when merging over results back into indiv
+   ungroup()
+
+  strataformula.hm = as.formula("~hv024 + hv025")
+      
+  svy <-
+        svydesign(
+          ~hv021  , # psu
+          strata = strataformula.hm ,
+          data =  indiv ,
+          weights = ~ weight
+        )
+
+  svy =  update( svy,
                one = 1,
-               hv105.grp.c = cut( hv105, breaks= c(0,5,15,25,35,45, Inf))
+               age.grp = levels(addNA( # allows NA to be it own level
+                 cut( hml16, breaks= c(0,5,15,25,35,45, Inf) ) ))
                )
+
 return( svy )
 })
 
@@ -322,14 +412,14 @@ svby_hml32_by_age = reactive({
   
   if ( is.null( svy()) ){ return()}
   
-    svy_obj = svyby( ~ hml32 , ~ hv105.grp.c, svy(), svymean, na.rm = TRUE )
+    svy_obj = svyby( ~ hml32 , ~ age.grp, svy(), svymean, na.rm = TRUE )
     return(svy_obj)
 }) 
 
 output$parasitemia_by_age =  renderPrint({ svby_hml32_by_age()  })
 
 output$parasitemia_by_age_plot = renderPlot( 
-  plot(svby_hml32_by_age(),main = "Parsitemia by Age Group")
+  plot(svby_hml32_by_age(), main = "Parsitemia by Age Group")
                                              )
 ```
 
@@ -356,7 +446,7 @@ output$own_net_by_urbanRural =  renderPrint({ svby_hml1.own_net_by_urbanRural() 
 ```{r anynet}
 svby_hml12.anynet = reactive({
   # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
-  svymean( ~ hml12.anynet , svy() , na.rm = TRUE  )
+  svymean( ~ Any_net , svy() , na.rm = TRUE  )
   # svyby( ~ hml12.anynet ,  ~ one, svy()[[1]] , svymean ,  na.rm = TRUE  )
 })
 
@@ -366,7 +456,7 @@ output$anynet =  renderPrint({ svby_hml12.anynet() })
 ```{r anynet_by_urbanRural}
 svby_hml12.anynet.urban = reactive({
   # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
-  svyby( ~ hml12.anynet ,  ~hv025, svy() , svymean ,  na.rm = TRUE  )
+  svyby( ~ Any_net ,  ~hv025, svy() , svymean ,  na.rm = TRUE  )
 })
 
 output$anynet.urban =  renderPrint({ svby_hml12.anynet.urban()  })
@@ -375,7 +465,7 @@ output$anynet.urban =  renderPrint({ svby_hml12.anynet.urban()  })
 ```{r anynet_by_age}
 svby_hml12.anynet_by_age = reactive({
   # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
-  svyby( ~ hml12.anynet ,  ~hv105.grp, svy() , svymean ,  na.rm = TRUE  )
+  svyby( ~ Any_net ,  ~age.grp, svy() , svymean ,  na.rm = TRUE  )
 })
 
 output$anynet_by_age =  renderPrint({ svby_hml12.anynet_by_age()  })
@@ -384,7 +474,7 @@ output$anynet_by_age =  renderPrint({ svby_hml12.anynet_by_age()  })
 ```{r anynet_by_region}
 svby_hml12.anynet_by_region = reactive({
   # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
-  svyboxplot( hml12.anynet~hv024, svy() , ylab = "Slept Under a Net" , xlab= 'Region' , na.rm = TRUE)
+  svyboxplot( Any_net ~ hv024, svy() , ylab = "Slept Under a Net" , xlab= 'Region' , na.rm = TRUE)
 })
 
 output$anynet_by_region =  renderPlot({ svby_hml12.anynet_by_region()  })
@@ -402,7 +492,7 @@ output$itn =  renderPrint({ svby_hml12.itn()  })
 ```{r itn_by_age}
 svby_hml12.itn_by_age = reactive({
   # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
-  svyby( ~ hml12.itn ,  ~hv105.grp, svy() , svymean ,  na.rm = TRUE  )
+  svyby( ~ hml12.itn ,  ~age.grp, svy() , svymean ,  na.rm = TRUE  )
 })
 
 output$itn_by_age =  renderPrint({ svby_hml12.itn_by_age()  })

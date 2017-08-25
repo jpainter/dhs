@@ -125,10 +125,18 @@ load_survey_file = function(
 
 
 
-  # include available data
-  vars_in_x = sapply(vars, function(y)  y %in% names(x))  # check if variable is in dataset
-  x = x %>% select_( .dots = vars[vars_in_x] )
+# VARS  #### ensure all variables are in file
 
+  vars_in_x = sapply(vars, function(y)  y %in% names(x))  # check if variable is in dataset
+  missing_vars = vars[!vars_in_x]
+  for (i in seq_along(missing_vars)){
+    x[[missing_vars[i]]] = NA 
+  }
+  x = x %>% select_( .dots = vars )
+  
+
+
+#  DESIGN ####
   if (design){
 
     # test if strata exists; some surveys have no strata (e.g. madagascar mis 2011)
@@ -148,17 +156,20 @@ load_survey_file = function(
 
 
     # household member
+    
     if ( tolower(.file) == tolower("Household Member Recode")){
       x = x %>%
         mutate( weight.hm = as.numeric( hv005 / 1000000 ),
                 strata = do.call( paste , x[ , c( 'hv024' , 'hv025' ) ] )
                 ) %>%
         filter( !is.na(weight.hm), !is.na(hv021) )
-
+      
+      strataformula.hm = as.formula("~hv024 + hv025")
+      
       svy <-
         svydesign(
           ~hv021  , # psu
-          strata = ~ strata ,
+          strata = strataformula.hm ,
           data =  x ,
           weights = ~ weight.hm
         )
