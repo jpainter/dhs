@@ -116,7 +116,8 @@ shinyUI(
       tabsetPanel( 
          
          tabPanel(title = "Parasitemia", 
-                  verbatimTextOutput("parasitemia"),
+                  verbatimTextOutput("slide"),
+                  verbatimTextOutput("rdt"),
                   verbatimTextOutput("parasitemia.urban"),
                   verbatimTextOutput("parasitemia_by_age"),
                   plotOutput("parasitemia_by_age_plot")
@@ -137,7 +138,10 @@ shinyUI(
                   verbatimTextOutput("itn_by_age")
          ),
          tabPanel(title = "Mortality", verbatimTextOutput("mortality") ),
-         tabPanel(title = "Respondents", verbatimTextOutput("respondents") ),
+         tabPanel(title = "Respondents", 
+                  verbatimTextOutput("respondents"),
+                  verbatimTextOutput("respondents.age")
+                  ),
          tabPanel(title = "Data Structure", verbatimTextOutput("structure") ),
          tabPanel(title = "Data Dictionary", DT::dataTableOutput("dictionary"), 
                   width = "100%" ),
@@ -257,17 +261,20 @@ variables = variables[ order(variables) ]
 ```{r svy} 
 svy = reactive({
   
+  req(input$Country, input$survey)
+  
   if (is.null(input$Country) | is.null(input$survey)) {
     return(NULL)
   }    
   
 country =  filter( f, country %in% input$Country & survey_year %in% input$survey) %>% .$country
+survey =  filter( f, country %in% input$Country & survey_year %in% input$survey) %>% .$survey
 year =  filter( f, country %in% input$Country & survey_year %in% input$survey) %>% .$year
 
 # test.  not run.  
-country =  filter( f, country %in% "Angola" & survey_year %in% "MIS 2011") %>% .$country
-survey =  filter( f, country %in% "Angola" & survey_year %in% "MIS 2011") %>% .$survey
-year =  filter( f, country %in% "Angola" & survey_year %in% "MIS 2011") %>% .$year
+# country =  filter( f, country %in% "Angola" & survey_year %in% "MIS 2011") %>% .$country
+# survey =  filter( f, country %in% "Angola" & survey_year %in% "MIS 2011") %>% .$survey
+# year =  filter( f, country %in% "Angola" & survey_year %in% "MIS 2011") %>% .$year
 
 # load file
 x = load_survey_file( .country = country,
@@ -310,12 +317,6 @@ indiv = x %>%
           data =  indiv ,
           weights = ~ weight
         )
-
-  svy =  update( svy,
-               one = 1,
-               age.grp = levels(addNA( # allows NA to be it own level
-                 cut( hml16, breaks= c(0,5,15,25,35,45, Inf) ) ))
-               )
 
 return( svy )
 })
@@ -368,11 +369,27 @@ output$dictionary  = DT::renderDataTable({
 
 ```{r respondents}
 
-  svy.one = reactive({
+  svy.ages = reactive({
   
     if ( is.null( svy()) ){ return()}
 
     svytotal( ~one , svy() )
+  })
+
+  output$respondents.age =  renderPrint({ 
+    if ( is.null( svy()) ){ return() }
+    svy.ages()  
+  })
+
+```
+
+```{r respondents.age}
+
+  svy.one = reactive({
+  
+    if ( is.null( svy()) ){ return()}
+
+    svyby( ~one , ~age.grp, svy() , svytotal )
   })
 
   output$respondents =  renderPrint({ 
@@ -383,16 +400,26 @@ output$dictionary  = DT::renderDataTable({
 ```
 
 
+
 ```{r parasitemia}
 
 
-svby_hml32. = reactive({
-    svymean( ~ hml32 , svy() , na.rm = TRUE  )
+svby_slide. = reactive({
+    svymean( ~ slide , svy() , na.rm = TRUE  )
 })
 
-output$parasitemia =  renderPrint({ 
+output$slide =  renderPrint({ 
   if ( is.null( svy()) ){ return() }
-  svby_hml32.()  
+  svby_slide.()  
+  })
+
+svby_rdt. = reactive({
+    svymean( ~ RDT , svy() , na.rm = TRUE  )
+})
+
+output$rdt =  renderPrint({ 
+  if ( is.null( svy()) ){ return() }
+  svby_rdt.()  
   })
 
 ```
@@ -401,7 +428,7 @@ output$parasitemia =  renderPrint({
 
 
 svby_hml32.urban = reactive({
-    svyby( ~ hml32 ,  ~hv025, svy() , svymean ,  na.rm = TRUE  )
+    svyby( ~ slide ,  ~hv025, svy() , svymean ,  na.rm = TRUE  )
 })
 
 output$parasitemia.urban =  renderPrint({ svby_hml32.urban()  })
@@ -415,7 +442,7 @@ svby_hml32_by_age = reactive({
   
   if ( is.null( svy()) ){ return()}
   
-    svy_obj = svyby( ~ hml32 , ~ age.grp, svy(), svymean, na.rm = TRUE )
+    svy_obj = svyby( ~ slide , ~ hml16 , subset(svy(), slide %in% 0:1) , svymean, na.rm = TRUE )
     return(svy_obj)
 }) 
 
@@ -430,8 +457,7 @@ output$parasitemia_by_age_plot = renderPlot(
 ```{r ownnet}
 svby_hml1.own = reactive({
   # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
-  svymean( ~ hml1.own , svy()[[1]] , na.rm = TRUE  )
-  # svyby( ~ hml12.anynet ,  ~ one, svy()[[1]] , svymean ,  na.rm = TRUE  )
+  svymean( ~ hml1 , svy() , na.rm = TRUE  )
 })
 
 output$own_net =  renderPrint({ svby_hml1.own() })
@@ -440,7 +466,7 @@ output$own_net =  renderPrint({ svby_hml1.own() })
 ```{r own_net_by_urbanRural}
 svby_hml1.own_net_by_urbanRural = reactive({
   # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
-  svyby( ~ hml1.own ,  ~hv025, svy() , svymean ,  na.rm = TRUE  )
+  svyby( ~ hml1 ,  ~hv025, svy() , svymean ,  na.rm = TRUE  )
 })
 
 output$own_net_by_urbanRural =  renderPrint({ svby_hml1.own_net_by_urbanRural()  })
@@ -480,13 +506,13 @@ svby_hml12.anynet_by_region = reactive({
   svyboxplot( Any_net ~ hv024, svy() , ylab = "Slept Under a Net" , xlab= 'Region' , na.rm = TRUE)
 })
 
-output$anynet_by_region =  renderPlot({ svby_hml12.anynet_by_region()  })
+output$anynet_by_region =  renderPrint({ svby_hml12.anynet_by_region()  })
 ```
 
 ```{r itn}
 svby_hml12.itn = reactive({
   # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
-  confint(svymean( ~ hml12.itn ,  svy() ,  na.rm = TRUE  ))
+  confint(svymean( ~ hml12 ,  svy() ,  na.rm = TRUE  ))
 })
 
 output$itn =  renderPrint({ svby_hml12.itn()  })
@@ -495,7 +521,7 @@ output$itn =  renderPrint({ svby_hml12.itn()  })
 ```{r itn_by_age}
 svby_hml12.itn_by_age = reactive({
   # svytable(~ hml12.anynet + v025, svy()[[1]], round=TRUE) 
-  svyby( ~ hml12.itn ,  ~age.grp, svy() , svymean ,  na.rm = TRUE  )
+  svyby( ~ hml12 ,  ~age.grp, svy() , svymean ,  na.rm = TRUE  )
 })
 
 output$itn_by_age =  renderPrint({ svby_hml12.itn_by_age()  })
