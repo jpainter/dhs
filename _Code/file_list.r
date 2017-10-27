@@ -1,11 +1,12 @@
 # loop through dhs data folders
 
+survey_files = function( dir = '../DHS/_Surveys' ){
 library(tidyverse)
 library(stringr)
 library(data.table)
 
 # populated by three subfolders
-folders <- list.dirs("../DHS/_Surveys", full.names = TRUE)
+folders <- list.dirs( dir , full.names = TRUE)
 
 files = list()
 
@@ -67,8 +68,9 @@ survey = sapply( strsplit(
 
 files[ newfiles[new_years] , "survey"] = survey[new_years]
 
+return( files )
 
-# nrow(files)
+}
 
-# View(files)
-
+# TEST
+# files = survey_files(); View(files)

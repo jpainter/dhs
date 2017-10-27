@@ -93,7 +93,7 @@ zip_files = files[is.zip.file]
 
 # TODO: 
 # SET option to overwrite if dataset already exists ####
-redownload = TRUE  # TRUE will result in overwrite
+redownload = FALSE  # TRUE will result in overwrite
 
 ## loop through each country folder #####
 n_zip_files = length(zip_files)
@@ -194,6 +194,11 @@ for ( j in seq_along( zip_files) ){
   geo_folder = grepl( "ge", substr( survey_file_folders , nchar(survey_file_folders)-5, nchar(survey_file_folders)-4) )
   unlink( survey_file_folders[!geo_folder] , recursive=TRUE)
 } 
+
+
+
+
+
 
 
 # FINAL MESSAGES ####

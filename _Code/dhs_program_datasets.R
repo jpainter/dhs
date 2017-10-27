@@ -1,4 +1,4 @@
-# DHS Surveys on website
+# DHS Surveys on website ####
 # http://dhsprogram.com/data/available-datasets.cfm
 library(tidyverse)
 
@@ -62,4 +62,35 @@ dhs = dhs %>%
     region = countrycode_data[ match(iso3, countrycode_data$iso3c), 'region']
   )
 
-View(dhs)
+# View(dhs)
+
+### Datasets already downloaded ####
+dhs_downloads = "../DHS/_dhs_download/"
+dhs_surveys = "../DHS/_Surveys/"
+dhs_code = "../DHS/_Code/"
+
+# find zip files and unzip
+source( paste0( dhs_code, "file_list.r") ) 
+
+files = survey_files() %>%
+  mutate( iso3 = countrycode( country, "country.name", "iso3c") ) %>%
+  count( country , iso3, survey, year )
+
+View( files )
+
+# which surveys are available, but not prepared
+
+subsahara = countrycode_data %>%
+  filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>%
+  rename( country.name = country.name.en) %>%
+  select( country.name, iso3c )
+
+missing = anti_join( dhs, files, by = c("iso3", "year") ) %>% 
+  filter( iso3 %in% subsahara$iso3c ,
+          year >2000 
+          )
+View(missing)
+## Sort by survey_data to see which surveys are publicly available, and gps_data to 
+## see which can be mapped
+
+

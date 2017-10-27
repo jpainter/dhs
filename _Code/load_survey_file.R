@@ -20,16 +20,27 @@ openSurveyFile = function(
 
   x = NULL
 
-  file = paste0( dhs_surveys ,
+  file = paste0( dhs_surveys , 
                  ifelse( .country %in% "DRC", "Congo Democratic Republic", .country),
                  "/", .survey, " ", .year,  "/", .file, ".rda")
 
   if ( file.exists( file ) ){
     load( file ) # file will be loaded as 'x'
-
-  } else {
-
-    filecodes = data_frame( abrev  = c("kr", "br", "ir", "pr", "hr", "hr" ),
+    return(x)
+  } 
+  
+  # check if file found after adding 'Supplemental' prefix
+ file = paste0( dhs_surveys , 
+                 ifelse( .country %in% "DRC", "Congo Democratic Republic", .country),
+                 "/", .survey, " ", .year,  "/Supplemental ", .file, ".rda")
+  
+  if ( file.exists( file ) ){
+    load( file ) # file will be loaded as 'x'
+    return(x)
+  } 
+  
+  # Then, Use abbrev format for file names
+  filecodes = data_frame( abrev  = c("kr", "br", "ir", "pr", "hr", "hr" ),
                             full = c("Children's Recode","Supplemental Births Recode","Individual Recode",
                                      "Household Member Recode", "Household Recode", "Supplemental Household Recode"))
 
@@ -38,7 +49,11 @@ openSurveyFile = function(
 
     files = list.files( dir )
 
-    prefix = paste0(  tolower( countrycode( .country, "country.name", "iso2c") ),
+    cc = tolower( countrycode( .country, "country.name", "iso2c") )
+    # DHS uses the wrong code for MADAGASCAR!
+    if ( .country %in% "Madagascar") cc = "md"
+    
+    prefix = paste0(  cc ,
                       filecodes$abrev[ match( tolower( .file ), tolower( filecodes$full ) )] )
 
     middle = substr( files[grep(".MAP", files, fixed=T)][1], 5, 8 )
@@ -48,14 +63,11 @@ openSurveyFile = function(
     file = paste0( dir, prefix, middle, suffix)
 
     if ( file.exists( file ) ){
+      
       x = readRDS( file ) # file will be loaded as 'x'
     }
 
-    ## TODO: error message when file not found
-
-  }
-
-  return(x)
+   return(x)
 }
 
 # TODO: get printout working.  R does not normally print from inside a function.
@@ -94,19 +106,11 @@ load_survey_file = function(
   )
 
   if (
-    ( class(x) == "try-error" | class(x) == "logical" | is.null(x) ) ){
+    ( class(x) == "try-error" | class(x) == "logical" | is.null(x) ) 
+    ){
     x = try(
       openSurveyFile(.country = .country,  .survey = .survey, .year = .year,
                      .file = paste("Supplemental", .file )
-      )
-    )
-  }
-
-  if (
-    (class(x) == "try-error" | class(x) == "logical" | is.null(x) ) ){
-    x = try(
-      openSurveyFile(.country = .country,  .survey = .survey, .year = .year,
-                     .file = .file
       )
     )
   }
@@ -119,7 +123,18 @@ load_survey_file = function(
 
     )
 
-    if ( class(g) == "data.frame" ) x = x %>% left_join(g, by=c("hv001"="dhsid") )
+    if ( class(g) == "data.frame" ){
+  
+      # if does not join with hv001 (e.g. household file), then try
+      # v001 (e.g. children's file)
+      
+       if ( "hv001" %in% names(x) ){
+         x = x %>%  left_join(g, by=c("hv001"="dhsid") )
+       } else {
+         x = x %>% left_join(g, by=c("v001"="dhsid") ) 
+       }
+
+    }
 
   } else {  g = NULL }
 
