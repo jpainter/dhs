@@ -1,6 +1,7 @@
 # DHS Surveys on website ####
 # http://dhsprogram.com/data/available-datasets.cfm
 library(tidyverse)
+library( countrycode )
 
 library(rvest)
 dhs_list <- read_html("http://dhsprogram.com/data/available-datasets.cfm")
@@ -65,11 +66,67 @@ dhs = dhs %>%
 # View(dhs)
 
 ### Datasets already downloaded ####
-dhs_downloads = "../DHS/_dhs_download/"
+dhs_downloads = "../DHS/_Surveys/_zip_download/"
 dhs_surveys = "../DHS/_Surveys/"
 dhs_code = "../DHS/_Code/"
 
-# find zip files and unzip
+### DHS Country Codes (https://www.dhsprogram.com/pubs/pdf/DHSG4/Recode6_DHS_22March2013_DHSG4.pdf) ####
+cc = tribble(
+  ~country , ~code , 
+  'Afghanistan' ,  'AF'  , 
+  'Haiti' ,  'HT' ,
+  'Niger'  , 'NI' ,
+  'Angola'  , 'AO' ,
+  'Honduras'  , 'HN'  ,
+  'Nigeria' ,  'NG' ,
+  'Armenia'  , 'AM' , 
+  'India'  , 'IA' ,
+  'Pakistan'  , 'PK' ,
+  'Azerbaijan'  , 'AZ' ,
+  'Indonesia'  , 'ID'  ,
+  'Peru'  , 'PE' ,
+  'Bangladesh'  , 'BD' ,  
+  'Jordan'  , 'JO'  , 
+  'Rwanda'  , 'RW' , 
+  'Benin'  , 'BJ'  , 
+  'Kenya'  , 'KE'  , 
+  'Senegal'  , 'SN' , 
+  'Burundi'  , 'BU'  , 
+  'Kyrgyz Republic'  , 'KY' ,  
+  'South Africa'  , 'ZA' , 
+  'Cambodia'  , 'KH'  , 
+  "Lao People's Dem. Rep." ,  'LA'  , 
+  'Swaziland'  , 'SZ' , 
+  'Colombia'  , 'CO'  , 
+  'Lesotho'  , 'LS'  , 
+  'Tajikistan'  , 'TJ' , 
+  'Congo (Brazzaville)' , 'CG' ,  
+  'Liberia'  , 'LB'  , 
+  'Tanzania'  , 'TZ' , 
+  'Congo Dem. Rep.'  , 'CD'  , 
+  'Madagascar'  , 'MD'  , 
+  'Timor-Leste'  , 'TP' , 
+  "Cote d'Ivoire" , 'CI' ,  
+  'Malawi'  , 'MW'  , 
+  'Uganda'  , 'UG' , 
+  'Egypt'  , 'EG'  , 
+  'Mali'  , 'ML'  , 
+  'Yemen'  , 'YE' , 
+  'Ethiopia'  , 'ET'  , 
+  'Mauritania' ,  'MR' ,  
+  'Zambia'  , 'ZM' , 
+  'Gabon'  , 'GA'  , 
+  'Mozambique'  , 'MZ'  , 
+  'Zimbabwe'  , 'ZW' , 
+  'Gambia'  , 'GM'  , 
+  'Namibia'  , 'NM'    ,  
+  'Guinea'  , 'GN'  , 
+  'Nepal'  , 'NP'  
+  
+)
+
+
+# find zip files and unzip  ####
 source( paste0( dhs_code, "file_list.r") ) 
 
 files = survey_files() %>%
@@ -89,7 +146,14 @@ missing = anti_join( dhs, files, by = c("iso3", "year") ) %>%
   filter( iso3 %in% subsahara$iso3c ,
           year >2000 
           )
+glimpse( missing )
 View(missing)
+
+available = missing %>% 
+  gather( survey_type, availability , survey_data, gps_data, bio_data, spa_data ) %>%
+  filter(availability %in% 'Data Available' , !type %in% 'SPA') %>%
+  arrange( country, desc( year ) )
+View( available )
 ## Sort by survey_data to see which surveys are publicly available, and gps_data to 
 ## see which can be mapped
 

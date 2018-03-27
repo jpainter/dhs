@@ -49,20 +49,28 @@ openSurveyFile = function(
 
     files = list.files( dir )
 
-    cc = tolower( countrycode( .country, "country.name", "iso2c") )
-    # DHS uses the wrong code for MADAGASCAR!
-    if ( .country %in% "Madagascar") cc = "md"
+    dhs_ccs = read_csv( paste0( dhs_surveys , 'CountryCodesDHS.csv' ), col_types = "cc" ) %>%
+      mutate( country = countrycode( country, "country.name", "country.name" )  )
+    
+    .country = countrycode( .country, "country.name", "country.name") 
+    
+    cc = dhs_ccs[ match( .country, dhs_ccs$country) , ]$code
     
     prefix = paste0(  cc ,
                       filecodes$abrev[ match( tolower( .file ), tolower( filecodes$full ) )] )
 
-    middle = substr( files[grep(".MAP", files, fixed=T)][1], 5, 8 )
+    # middle = substr( files[ grep(".MAP", files, fixed=T ) ][1], 5, 8 )
 
     suffix = ".rds"
 
-    file = paste0( dir, prefix, middle, suffix)
+    # file = toupper( paste0( dir, prefix, middle, suffix) )
+    
+    has_prefix = grepl( prefix , files , ignore.case = TRUE)
+    has_suffix = grepl( suffix , files , ignore.case = TRUE)
 
-    if ( file.exists( file ) ){
+    file = paste0( dir , files[ has_prefix & has_suffix ] )
+    
+    if ( file.exists( file )  ){
       
       x = readRDS( file ) # file will be loaded as 'x'
     }

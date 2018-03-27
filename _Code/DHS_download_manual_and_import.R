@@ -82,12 +82,18 @@ library(foreign)
 library(rgdal)
 library(stringr)
 
-dhs_downloads = "../DHS/_dhs_download/"
+
+# folders ####
+
+dhs_downloads = "../DHS/_Surveys/_zip_download/"
 dhs_surveys = "../DHS/_Surveys/"
 dhs_code = "../DHS/_Code/"
 
-# find zip files and unzip
-files = list.files("_dhs_download")
+### DHS Country Codes (https://www.dhsprogram.com/pubs/pdf/DHSG4/Recode6_DHS_22March2013_DHSG4.pdf) ####
+cc = read_csv( paste0( dhs_surveys , 'CountryCodesDHS.csv' ))
+
+# find zip files and unzip 
+files = list.files( dhs_downloads )
 is.zip.file = grepl(".zip", files)
 zip_files = files[is.zip.file]
 
@@ -96,44 +102,47 @@ zip_files = files[is.zip.file]
 redownload = FALSE  # TRUE will result in overwrite
 
 ## loop through each country folder #####
-n_zip_files = length(zip_files)
-p <- progress_estimated(n_zip_files)
+n_zip_files = length( zip_files )
+p <- progress_estimated( n_zip_files )
   
   
 for ( j in seq_along( zip_files) ){
   
-  if ( n_zip_files> 1 ){ p$pause(0.1)$tick()$print() }
+  if ( n_zip_files > 1 ){ p$pause(0.1)$tick()$print() }
   
   # final folder to save it
-  country_iso2 <- substr(zip_files[j],1,2)
-  country = countrycode(country_iso2, "iso2c", "country.name")
+  country_cc <- cc[ match( substr(zip_files[j],1,2) , cc$code ) , ]$country
+  country_iso3 = countrycode( country_cc, "country.name" , "iso3c" )
+  country = countrycode(country_iso3, "iso3c", "country.name")
   dir.create( paste0(  country) , showWarnings = FALSE )
   
   #create folder for survey within country 
   underscores = gregexpr( "_", zip_files[j])[[1]]
   survey = substr(zip_files[j], underscores[1]+1, underscores[3]-1 )
   survey_folder = paste0( dhs_surveys, country, "/", survey)
-  dir.create( dhs_surveys, survey_folder , showWarnings = FALSE )
+  dir.create( survey_folder , showWarnings = FALSE )
   
   cat( country, survey, "\n")
   
-  unzip( paste0( dhs_downloads , zip_files[j] ), exdir = survey_folder)
+  unzip( paste0( dhs_downloads , zip_files[j] ) , exdir = survey_folder)
   
   survey_file_folders = list.dirs( survey_folder, recursive = FALSE, full.names = TRUE)
   
   # get list of folders within survey
   for ( k in seq_along( survey_file_folders )){
     
-    # 
+    # if RDS file exists, go to next
+    if ( exists( paste0( survey_file_folders[k] , ".rds" ) ) & !redownload  ){ next } 
 
    survey_files = list.files( survey_file_folders[k], recursive = FALSE, full.names = TRUE)
-   
-  # clear up RAM
-  # gc()
-      
-        # if RDS file exists, go to next
-        if ( exists( paste0( survey_file_folders[k] , ".rds" ) ) & !redownload  ){ next } 
         
+   # if file is actually a zip file--see Senegal continuous DHS 2016--expand it
+   if ( any( st <- grepl( "\\.zip$" , tolower( survey_files ) ) ) ){
+     
+     unzip(  survey_files[1] , exdir = survey_file_folders[k] ) 
+     
+     survey_files = list.files( survey_file_folders[k], recursive = FALSE, full.names = TRUE)
+   }
    
    # and now, if there's a stata file, import it!
         if ( any( st <- grepl( "\\.dta$" , tolower( survey_files ) ) ) ){
@@ -191,7 +200,10 @@ for ( j in seq_along( zip_files) ){
       } 
 
   # Once done, , remove  all subdirectories except one with geo
-  geo_folder = grepl( "ge", substr( survey_file_folders , nchar(survey_file_folders)-5, nchar(survey_file_folders)-4) )
+  geo_folder = grepl( "ge", tolower( 
+    substr( survey_file_folders , nchar(survey_file_folders)-5, nchar(survey_file_folders)-4) 
+    )
+  )
   unlink( survey_file_folders[!geo_folder] , recursive=TRUE)
 } 
 

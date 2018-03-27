@@ -10,29 +10,26 @@
 # TODO : fix namespace conflict where files that load surveys invalidate dplyr verbs
 
 # 1.  libraries ####
-
-library(readxl)
-library(tidyverse, quietly = TRUE)
-library(data.table)
-library(scales, quietly = TRUE)
-library(lubridate)
-# library(dtplyr)
-library(countrycode)
-library(knitr)
-
-library(survey)
-# library(srvyr) # https://cran.r-project.org/web/packages/srvyr/vignettes/srvyr-vs-survey.html
-library( broom )
-
-
-
-# Set location of survey datasets and survey code
-
-## location of DHS survey and code folders.
-## include DHS files as: paste0( dhs_surveys, <dhs file here>)
-dhs_surveys = "../DHS/_Surveys"
-dhs_code = "../DHS/_Code/"
-dhs_dataset = "../DHS/_Datasets/malaria_module/"
+  library(DT) # for html table display
+  library(readxl)
+  library(data.table)
+  library(scales, quietly = TRUE)
+  library(lubridate)
+  library(countrycode)
+  library(knitr)
+  
+  library(survey)
+  # library(srvyr) # https://cran.r-project.org/web/packages/srvyr/vignettes/srvyr-vs-survey.html
+  library( broom )
+  library(tidyverse, quietly = TRUE)
+  
+  # Set location of survey datasets and survey code
+  
+  ## location of DHS survey and code folders.
+  ## include DHS files as: paste0( dhs_surveys, <dhs file here>)
+  dhs_surveys = "../DHS/_Surveys"
+  dhs_code = "../DHS/_Code/"
+  dhs_dataset = "../DHS/_Datasets/malaria_module/"
 
 
 
@@ -116,270 +113,317 @@ cat('There are', nrow(survey_list), 'available surveys')
 
 
 
-
-
-
-
 #### Household and Cluster Data  ####
-## H-3. Household Variables ####  
+## H-3. Household Level Dataset Variables ####  
 
-variable.doc = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
-                           sheet = "household" 
-) %>%
-  filter( !is.na( variable ))
-
-variables <- unique( toupper( variable.doc$variable ) ) 
-variables = variables[ order(variables) ]
+  variable.doc = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
+                             sheet = "variables" 
+  ) %>%
+    filter( !is.na( variable ))
+  
+  variables <- unique( toupper( variable.doc$variable ) ) 
+  variables = variables[ order(variables) ]
 
 ## H-44. survey line list: X.house ####
 
-source( paste0( dhs_code, "getSurveyGIS.R") )
-source( paste0( dhs_code, 'load_survey_file.R' ) )
-
-nsurveys = nrow(survey_list)
-
-index = row.names(survey_list)
-
-p <- progress_estimated(nsurveys)
-
-x <- list()
-
-translate = FALSE  # optional translation of values to label.
-# NB: Does not work well for all variables
-
-###TODO:  add option to append only--skip if already exists--rewrite
-
-for (i in seq_along( index )  ){
+  source( paste0( dhs_code, "getSurveyGIS.R") )
+  source( paste0( dhs_code, 'load_survey_file.R' ) )
   
-  p$pause(0.1)$tick()$print()
+  #  load previous household file.  
+  if ( !exists('household') )  household = readRDS( paste0( dhs_dataset, "household.rds") )
   
-  .country = survey_list[i, ]$country
-  .iso3 = countrycode( survey_list[i, ]$country, "country.name", "iso3c")
-  .survey = survey_list[i, ]$survey
-  .year = survey_list[i, ]$year
-  .year1 = survey_list[i, ]$year1
-  .year2 = survey_list[i, ]$year2
-  .period = survey_list[i, ]$year2
-  .file = "Household Recode"
-  .survey_year = paste(.survey, .year)
-  .era = survey_list$era
+  existing_surveys =  unique( household[ , c( 'country', 'year', 'survey' ) ] ) 
+  n_existing_surveys = nrow( existing_surveys )
   
-  print( paste(.country, .survey, .year, .file) )
+  nsurveys = nrow(survey_list)
   
-  x[[i]] <- try( silent = TRUE,
-                 load_survey_file(
-                   # printout = TRUE ,  # un comment when testing
-                   vars = variables ,
-                   .country = .country ,
-                   .survey = .survey ,
-                   .year = .year ,
-                   .file = .file ,
-                   design = FALSE ,
-                   geo = TRUE  )
-  )
+  # Append or replace
+  paste( 'There are potentially', nsurveys - n_existing_surveys, 'surveys to add.')
   
-  if ( class(x[[i]]) == "try-error" ){
-    print( paste(.country, .survey, .year, .file, " FAILED ") )
-    x[[i]] = NULL
-    next()
+  append = TRUE  # if TRUE, existing elements will be replaced
+  
+  if ( append == TRUE ){
+    survey_list = anti_join( survey_list , existing_surveys )
   }
-  
-  
-  x[[i]]$country = rep( .country, nrow(x[[i]]) )
-  x[[i]]$iso3 = rep( .iso3, nrow(x[[i]]) )
-  x[[i]]$year = rep( .year, nrow(x[[i]]) )
-  x[[i]]$survey = rep( .survey, nrow(x[[i]]) )
-  
-  # TODO: optional- relate dictionary to survey                    )
-  
-  # # TODO: only for columns with >4 values (others easier to keep as numeric)
-  # # Deriving this table should happen once, before loop
-  # v = dd %>% filter( tolower(Item_Name) %in% variables) %>% group_by( Item_Name, label ) %>%
-  #   summarise( n = n()) %>% group_by( Item_Name) %>% count(Item_Name) %>% filter(nn>4)
-  
-  if (translate){
     
-    # refine dictionary for this country-survey
-    dict = dd %>% filter_( ~country == .country , ~survey == .survey, ~year == .year,
-                           ~Item_Name %in% toupper(names(has_vars))
+  
+  index = row.names(survey_list)
+  
+  p <- progress_estimated(nsurveys)
+  
+  x <- list()
+  
+  translate = FALSE  # optional translation of values to label.
+  # NB: Does not work well for all variables
+  
+  ###TODO:  add option to append only--skip if already exists--rewrite
+  
+  for (i in seq_along( index )  ){
+    
+    p$pause(0.1)$tick()$print()
+    
+    .country = survey_list[i, ]$country
+    .iso3 = countrycode( survey_list[i, ]$country, "country.name", "iso3c")
+    .survey = survey_list[i, ]$survey
+    .year = survey_list[i, ]$year
+    .year1 = survey_list[i, ]$year1
+    .year2 = survey_list[i, ]$year2
+    .period = survey_list[i, ]$year2
+    .file = "Household Recode"
+    .survey_year = paste(.survey, .year)
+    .era = survey_list$era
+    
+    print( paste(.country, .survey, .year, .file) )
+    
+    x[[i]] <- try( silent = TRUE,
+                   load_survey_file(
+                     # printout = TRUE ,  # un comment when testing
+                     vars = variables ,
+                     .country = .country ,
+                     .survey = .survey ,
+                     .year = .year ,
+                     .file = .file ,
+                     design = FALSE ,
+                     geo = TRUE  )
     )
     
-    y = x[[i]]
-    
-    for (col in 1:length(colnames(y))){
-      column = tolower( colnames(y)[col] )
-      
-      dict_var = dict %>%
-        mutate( item_name = tolower(Item_Name)) %>%
-        filter_( ~item_name == column ) %>% # , ~file == "Household Member Recode"
-        count( value, label) %>% select(-n)
-      
-      old_value = y[, col]
-      new_value = dict_var[ match( old_value, dict_var$value ), ]$label
-      y[, col] = ifelse( is.na( new_value), old_value, new_value)
+    if ( class(x[[i]]) == "try-error" ){
+      print( paste(.country, .survey, .year, .file, " FAILED ") )
+      x[[i]] = NULL
+      next()
     }
-    x[[i]] = y
+    
+    
+    x[[i]]$country = rep( .country, nrow(x[[i]]) )
+    x[[i]]$iso3 = rep( .iso3, nrow(x[[i]]) )
+    x[[i]]$year = rep( .year, nrow(x[[i]]) )
+    x[[i]]$survey = rep( .survey, nrow(x[[i]]) )
+    
+    # TODO: optional- relate dictionary to survey                    )
+    
+    # # TODO: only for columns with >4 values (others easier to keep as numeric)
+    # # Deriving this table should happen once, before loop
+    # v = dd %>% filter( tolower(Item_Name) %in% variables) %>% group_by( Item_Name, label ) %>%
+    #   summarise( n = n()) %>% group_by( Item_Name) %>% count(Item_Name) %>% filter(nn>4)
+    
+    if (translate){
+      
+      # refine dictionary for this country-survey
+      dict = dd %>% filter_( ~country == .country , ~survey == .survey, ~year == .year,
+                             ~Item_Name %in% toupper(names(has_vars))
+      )
+      
+      y = x[[i]]
+      
+      for (col in 1:length(colnames(y))){
+        column = tolower( colnames(y)[col] )
+        
+        dict_var = dict %>%
+          mutate( item_name = tolower(Item_Name)) %>%
+          filter_( ~item_name == column ) %>% # , ~file == "Household Member Recode"
+          count( value, label) %>% select(-n)
+        
+        old_value = y[, col]
+        new_value = dict_var[ match( old_value, dict_var$value ), ]$label
+        y[, col] = ifelse( is.na( new_value), old_value, new_value)
+      }
+      x[[i]] = y
+    }
+    
+    # if (is.null(X) ){ X <- x; next()}
+    # X = data.table::rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
+    
   }
   
-  # if (is.null(X) ){ X <- x; next()}
-  # X = rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
+  X.house = data.table::rbindlist(x, fill = TRUE)
   
-}
-
-X.house = rbindlist(x, fill = TRUE)
-
-saveRDS( X.house , file = paste0( dhs_dataset, "X-household.rds") )
+  saveRDS( X.house , file = paste0( dhs_dataset, "X.house.rds") )
 
 
-# Check for FAILURES
-inX = count(X.house, country, year )
-failed = anti_join( survey_list, inX , Joining, by = c("country", "year"))
-select( failed, country, year, survey )
+  # Check for FAILURES
+  inX = count(X.house, country, year )
+  failed = anti_join( survey_list, inX , Joining, by = c("country", "year"))
+  select( failed, country, year, survey )
 
-# Summarise by cluster
-s = X.house %>%
-  group_by( hv000, year, hv001, hv002 ) %>%
-  summarise(
-    rows = n() ,
-    households = n_distinct(hv002)
-  ) %>%
-  mutate( extra =  rows - households  )
+  # Summarise by cluster (this can be a couple minutes, and there is no progress bar)
+  s = X.house %>%
+    group_by( hv000, year, hv001, hv002 ) %>%
+    summarise(
+      country = dplyr::first( country ) ,
+      survey = dplyr::first( survey ) ,
+      rows = n() ,
+      households = n_distinct(hv002)
+    ) %>%
+    ungroup %>%
+    mutate( yr = as.integer( str_sub( year, 1, 4)) ,
+            extra =  rows - households 
+            )
+  
+  nrow(s)
+  nrow( s[s$extra > 0 ,])
+  summary( s$extra)
+  
+  # Identify surveys where there appears to be a problem: there are more rows than households
+  count( s[s$extra > 0 ,], hv000, country, year, survey )
 
-hist( s$extra  )
-summary( s$extra)
-nrow(s)
-nrow( s[s$extra > 0 ,])
-
-  filter( extra > 0 ) %>%
-  arrange( desc(extra) )
+  # Save this metadata
+  save( inX, s, file = 'X.house-metadata.rda' )
 
 ##TODO Collapse extra records so there are not >1 record per household 
 
 ## H-5. Load X.house ####
 
-if ( !exists('X.house') )  X.child = readRDS( paste0( dhs_dataset, "X-household.rds") )
+  if ( !exists('X.house') )  X.house = readRDS( paste0( dhs_dataset, "X.house.rds") )
 
 ## H-6. Household dataset ####
 
-# NB: all references to survey variable should be lower case (eg hv227, not HV227)
-
-derived.household = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
-                                sheet = "derived-household" 
-)
-
-household.mutate.nse = filter(
-  derived.household,
-  !is.na(Code) ,
-  # Applies_to == "indiv",
-  tolower( Include ) %in% 'y' ,
-  !(exclude %in% 1)
-) %>%
-  select(Variable, Code)  %>% as.list()
-
-
-household = X.house %>%
+  # NB: all references to survey variable should be lower case (eg hv227, not HV227)
   
-  mutate_( .dots = setNames(
-    household.mutate.nse$Code ,
-    household.mutate.nse$Variable
-  )  
+  derived.household = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
+                                  sheet = "derived-household" 
+  )
+  
+  household.mutate.nse = filter(
+    derived.household,
+    !is.na(Code) ,
+    # Applies_to == "indiv",
+    # tolower( exclude ) %in% 'y' ,
+    !( exclude %in% 'y' )
   ) %>%
-  mutate( rowid = row_number()) %>%  # use rowid when merging over results back into indiv
-  ungroup()
-
-# remove X to clear memory
-rm(X.house); gc()
-
-
-saveRDS( household, file = paste0( dhs_dataset, "household.rds"))
-
+    select(Variable, Code)  %>% as.list()
+  
+  
+  household = X.house %>%
+    group_by( country, survey, year, hv001 ) %>%
+    mutate_( .dots = setNames(
+      household.mutate.nse$Code ,
+      household.mutate.nse$Variable
+    )  
+    ) %>%
+    mutate( rowid = row_number() ) %>%  # use rowid when merging over results back into indiv
+    ungroup()
+  
+  # remove X to clear memory
+  rm(X.house); gc()
+  
+  
+  saveRDS( household, file = paste0( dhs_dataset, "household.rds"))
+  
 
 # H-7. load Household dataset  ####
 
-if ( !exists('household') )  children = readRDS( paste0( dhs_dataset, "children.rds") )
+  if ( !exists('household') )  household = readRDS( paste0( dhs_dataset, "household.rds") )
 
 
 
-## 8. Load Maps ####
+## H-8. Load Maps ####
 
-suppressMessages( library(sp) )
+  suppressMessages( library(sp) )
+  
+  gadm = "../malaria_atlas/gadm/"
+  
+  load( paste0( gadm, "adm0.africa") )
+  load( paste0( gadm, "adm1.africa") )
+  load( paste0( gadm, "adm2.africa") )
+  load( paste0( gadm, "adm0.africa.s") ) # simplified map to reduce edges and speed up over function
+  load( paste0( gadm, "adm0.africa.centroids") )
+  load( paste0( gadm, "adm1.africa.centroids") )
+  load( paste0( gadm, "adm2.africa.centroids") )
+  
+  proj_string = proj4string(adm1.africa)
 
-gadm = "../malaria_atlas/gadm/"
 
-load( paste0( gadm, "adm0.africa") )
-load( paste0( gadm, "adm1.africa") )
-load( paste0( gadm, "adm2.africa") )
-load( paste0( gadm, "adm0.africa.s") ) # simplified map to reduce edges and speed up over function
-load( paste0( gadm, "adm0.africa.centroids") )
-load( paste0( gadm, "adm1.africa.centroids") )
-load( paste0( gadm, "adm2.africa.centroids") )
+# H-9. cluster/individual spatial data frame ####
 
-proj_string = proj4string(adm1.africa)
+  cluster = household %>% 
+    filter(!is.na(longitude)|!is.na(latitude) ) %>%
+    group_by( country, survey,  year, hv001 ) %>%
+    summarise( 
+      latitude = max(latitude, na.rm = TRUE ), 
+      longitude = max(longitude, na.rm = TRUE ) ,
+      households = n_distinct( hv002 ) ,
+      persons = n() # NB: this household file---need to sum variable for persons/household
+      ) %>%
+    mutate( rowid = row_number())
+  
+  
+  cluster.latlong = cluster %>% 
+    ungroup %>%
+    dplyr::select( longitude , latitude ) %>%
+    as.data.frame()
+  
+  cluster.id = cluster %>% 
+    dplyr::select( country, year, hv001  ) %>% 
+    as.data.frame()
+  
+  cluster.spdf = SpatialPointsDataFrame( cluster.latlong , 
+                                         cluster.id ,  
+                                         match.ID = FALSE, 
+                                         proj4string=CRS(proj_string) 
+  )
+  
+  rm(cluster, cluster.latlong, cluster.id );  gc()
 
+  # Over function to associate cluster with adminstrative areas 
+  over_adm2 = over( cluster.spdf, adm2.africa) %>% 
+    dplyr::select( NAME_0, NAME_1, NAME_2, ENGTYPE_2, iso3 )
+  
+  over_adm2$country = cluster$country
+  over_adm2$year = cluster$year
+  over_adm2$hv001 = cluster$hv001
+  over_adm2$latitude = cluster$latitude
+  over_adm2$longitude = cluster$latitude
 
-# 9. cluster/individual spatial data frame ####
+  # add coordinates for coentroids
+  match_centroids2 = match( over_adm2$NAME_0 , adm2.africa.centroids$NAME_0 ) &
+    match( over_adm2$NAME_1 , adm2.africa.centroids$NAME_1 ) &
+    match( over_adm2$NAME_2 , adm2.africa.centroids$NAME_2 )
+  
+  over_adm2$centroids2 = adm2.africa.centroids[ match_centroids2, c( 'x', 'y') ]
+  
+  match_centroids1 = match( over_adm2$NAME_0 , adm1.africa.centroids$NAME_0 ) &
+    match( over_adm2$NAME_1 , adm1.africa.centroids$NAME_1 ) 
+  
+  over_adm2$centroids1 = adm1.africa.centroids[ match_centroids1, c( 'x', 'y') ]
+  
+  match_centroids0 = match( over_adm2$NAME_0 , adm0.africa.centroids$NAME_0 ) 
+  
+  over_adm2$centroids0 = adm0.africa.centroids[ match_centroids0, c( 'x', 'y') ]
+  
+  glimpse( over_adm2 )
+  
+  saveRDS(over_adm2, file = paste0( dhs_dataset, 'over_adm2.rds'))
+  
+  household.over = left_join( household, over_adm2 , 
+                          by = c('country', 'year', 'hv001') , 
+                          na_matches = "never"  ) 
+  
+  saveRDS(household.over, file = paste0( dhs_dataset, 'household.over.rds'))
+  
+  # remove objects to conserve memory
+  rm( household, cluster.sinstall.packages("seasonal")pdf, over_adm2, adm0.africa, adm1.africa, adm2.africa );  gc()
 
-cluster = household %>% 
-  filter(!is.na(longitude)|!is.na(latitude) ) %>%
-  group_by( country, year, hv001 ) %>%
-  summarise( 
-    latitude = max(latitude, na.rm = TRUE ), 
-    longitude = max(longitude, na.rm = TRUE ) ,
-    households = n_distinct( hv002 ) ,
-    persons = n()
-    ) %>%
-  mutate( rowid = row_number())
+# H-10. Load household.over ####
 
-cluster.latlong = cluster %>% 
-  ungroup %>%
-  dplyr::select( latitude, longitude ) %>%
-  as.data.frame()
+  if (!exists('household.over'))  household.over = readRDS(paste0( dhs_dataset, 'household.over.rds'))
+  glimpse( household.over )
+  
+  # number of households per survey 
+  count(household.over, country, survey , year ) %>% arrange( desc(n)) %>% print(n=150)
+  
+# H-11. identify rows without gps or those that did not match adm ####
 
-cluster.id = cluster %>% 
-  dplyr::select( country, year, hv001  ) %>% 
-  as.data.frame()
-
-cluster.spdf = SpatialPointsDataFrame( cluster.latlong , 
-                                       cluster.id ,  
-                                       match.ID = FALSE, 
-                                       proj4string=CRS(proj_string) 
-)
-
-rm(cluster, cluster.latlong, cluster.id );  gc()
-
-# Over function to associate cluster with adminstrative areas 
-over_adm2 = over( cluster.spdf, adm2.africa)   %>% dplyr::select(-iso3)
-
-over_adm2$country = cluster.spdf@data$country
-over_adm2$year = cluster.spdf@data$year
-over_adm2$hv001 = cluster.spdf@data$hv001
-
-household.over = left_join( household, over_adm2 , 
-                        by = c('country', 'year', 'hv001') , 
-                        na_matches = "never"  ) 
-
-saveRDS(household.over, file = paste0( dhs_dataset, 'household.over.rds'))
-
-# remove objects to conserve memory
-rm( household, cluster.spdf, over_adm2, adm0.africa, adm1.africa, adm2.africa );  gc()
-
-# 10. Load household.over ####
-
-if (!exists('household.over'))  indiv.over = readRDS(paste0( dhs_dataset, 'household.over.rds'))
-
-# 11. identify rows without gps or those that did not match adm ####
-
-ADM = indiv.over %>% group_by(country, survey, year) %>% 
-  summarize( 
-    N = n() ,
-    NAME_0 = sum( !is.na(NAME_0) ) ,
-    NAME_1 = sum( !is.na(NAME_1) ) ,
-    NAME_2 = sum( !is.na(NAME_2) ) ,
-    gps = sum( !is.na(longitude) & !is.na(latitude) ) ,
-    nogps = sum( is.na(longitude) | is.na(latitude) ),
-    gpsNoName = gps - NAME_2
-             )
-# View(ADM)
+  ADM = household.over %>% group_by(country, survey, year) %>% 
+    summarize( 
+      N = n() ,
+      NAME_0 = sum( !is.na(NAME_0) ) ,
+      NAME_1 = sum( !is.na(NAME_1) ) ,
+      NAME_2 = sum( !is.na(NAME_2) ) ,
+      gps = sum( !is.na(longitude) & !is.na(latitude) ) ,
+      nogps = sum( is.na(longitude) | is.na(latitude) ),
+      gpsNoName = gps - NAME_2
+               )
+  # View(ADM)
 
 
 
@@ -388,8 +432,6 @@ ADM = indiv.over %>% group_by(country, survey, year) %>%
 
 #### Individual / Member File #### 
 # I3. Variables ####  
-
-# TODO: Get variables from excel sheet.
 
 variable.doc = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
                            sheet = "variables" 
@@ -492,11 +534,11 @@ for (i in seq_along( index )  ){
   }
   
   # if (is.null(X) ){ X <- x; next()}
-  # X = rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
+  # X = data.table::rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
   
 }
 
-X = rbindlist(x, fill = TRUE)
+X = data.table::rbindlist(x, fill = TRUE)
 
 # Check for FAILURES
 inX = count(X, country, year )
@@ -563,8 +605,6 @@ if ( !exists('indiv') )  indiv = readRDS( paste0( dhs_dataset, "indiv.rds") )
 #### Childrens File ####
 # childrens (births) X
 ## CH-3. Children Variables ####  
-
-# TODO: Get variables from excel sheet.
 
 variable.doc = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
                            sheet = "children" 
@@ -667,11 +707,11 @@ for (i in seq_along( index )  ){
   }
   
   # if (is.null(X) ){ X <- x; next()}
-  # X = rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
+  # X = data.table::rbindlist( list(X, x), use.names = TRUE, fill = TRUE)
   
 }
 
-X.child = rbindlist(x, fill = TRUE)
+X.child = data.table::rbindlist(x, fill = TRUE)
 
 # Check for FAILURES
 inX = count(X.child, country, year )
@@ -730,13 +770,13 @@ if ( !exists('children') )  children = readRDS( paste0( dhs_dataset, "children.r
 
 # list of surveys.  $data contains each surveys dataset as a data.frame
 survey.nest =
-  indiv.over %>%
+  indiv %>%
   # nest by survey
   nest( -country, -iso3, -survey, -year ) 
 
 saveRDS(survey.nest, file = paste0( dhs_dataset, 'survey.nest.rds'))
 
-rm( indiv.over); gc()  
+# rm( indiv.over); gc()  
 
 if (!exists( 'survey.nest') ) survey.nest = readRDS(paste0( dhs_dataset, 'survey.nest.rds'))
 
@@ -816,7 +856,7 @@ for (i in seq_along( 1:n_surveys )  ){
       survey.nest[i, ]$survey, 
       "\n")
   
-  survey_list = lapply(cols, function(col){ 
+  survey_estimate_list = lapply(cols, function(col){ 
     survey.nest[i, ] %>% 
       mutate( est = map(data, var = col , by = by , svy_mean ) ) %>%
       select(-data) 
@@ -824,17 +864,17 @@ for (i in seq_along( 1:n_surveys )  ){
   
   if ( length(by) > 1 ){
     
-    survey_list_2 = lapply(cols, function(col){ 
+    survey_estimate_list_2 = lapply(cols, function(col){ 
       survey.nest[i, ] %>% 
         mutate( est = map(data, var = col , by = by[2] , svy_mean ) ) %>%
         select(-data) 
     } ) 
     
-    survey_var_list = c( survey_list, survey_list_2)
+    survey_var_list = c( survey_estimate_list, survey_estimate_list_2)
     
   } else {
     
-    survey_var_list = c( survey_list )
+    survey_var_list = c( survey_estimate_list )
   }
   
   
@@ -862,10 +902,10 @@ for (i in seq_along( 1:n_surveys )  ){
     xx[[ii]] = df %>% filter( !is.na(by) )
   }
   
-  x[[i]]  = rbindlist( xx , fill = TRUE )
+  x[[i]]  = data.table::rbindlist( xx , fill = TRUE )
 }
 
-adm.by.estimates = rbindlist( x , fill = TRUE)
+adm.by.estimates = data.table::rbindlist( x , fill = TRUE)
 
 saveRDS( adm.by.estimates, file = paste0( dhs_dataset, "adm.by.estimates.rds"))
 
@@ -1017,10 +1057,10 @@ for (i in seq_along( 1:n_surveys )  ){
     xx[[ii]] = df %>% filter( !is.na(by) )
   }
   
-  x[[i]]  = rbindlist( xx , fill = TRUE )
+  x[[i]]  = data.table::rbindlist( xx , fill = TRUE )
 }
 
-adm.by.estimates.children = rbindlist( x , fill = TRUE)
+adm.by.estimates.children = data.table::rbindlist( x , fill = TRUE)
 
 saveRDS( adm.by.estimates.children, file = paste0( dhs_dataset, "adm.by.estimates.children.rds"))
 ## Read adm.by.estimates  ####
@@ -1041,8 +1081,7 @@ t = adm.by.estimates.children %>%
   ) %>% 
   select( -est, -se )
 
-library(DT)
-datatable(t, filter = 'top')
+datatable( t, filter = 'top' )
 
 write.csv(t, "../WMR/MIP-Gutman/dhs_anc_iptp_rates.csv")
   
