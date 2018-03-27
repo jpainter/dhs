@@ -2,6 +2,7 @@
 # http://dhsprogram.com/data/available-datasets.cfm
 library(tidyverse)
 library( countrycode )
+library(stringr)
 
 library(rvest)
 dhs_list <- read_html("http://dhsprogram.com/data/available-datasets.cfm")
@@ -47,11 +48,9 @@ spa_data = dhs_list %>%
   html_text() 
 spa_data
 
-library(stringr)
 country = word(survey, 1, -2)
 year =  word(survey, -1)
 
-library(countrycode)
 dhs = data_frame( survey, country , year ,
                   type, phase, recode, survey_data, gps_data, bio_data, spa_data ) %>%
   mutate( 
@@ -133,11 +132,11 @@ files = survey_files() %>%
   mutate( iso3 = countrycode( country, "country.name", "iso3c") ) %>%
   count( country , iso3, survey, year )
 
-View( files )
+# View( files )
 
 # which surveys are available, but not prepared
 
-subsahara = countrycode_data %>%
+subsahara = countrycode::codelist_panel %>%
   filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>%
   rename( country.name = country.name.en) %>%
   select( country.name, iso3c )
