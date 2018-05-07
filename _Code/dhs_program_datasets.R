@@ -59,7 +59,7 @@ dhs = data_frame( survey, country , year ,
 
 dhs = dhs %>%
   mutate( 
-    region = countrycode_data[ match(iso3, countrycode_data$iso3c), 'region']
+    region = codelist[ match(dhs$iso3, codelist$iso3c), 'region']
   )
 
 # View(dhs)
@@ -136,7 +136,7 @@ files = survey_files() %>%
 
 # which surveys are available, but not prepared
 
-subsahara = countrycode::codelist_panel %>%
+subsahara = codelist %>%
   filter( region %in% c("Middle Africa", "Western Africa", "Eastern Africa", "Southern Africa")) %>%
   rename( country.name = country.name.en) %>%
   select( country.name, iso3c )
