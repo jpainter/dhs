@@ -775,61 +775,67 @@ if ( !exists('children') )  children = readRDS( paste0( dhs_dataset, "children.r
 
 #### CLUSTER version.... #####
 # Cluster dataset ####
-
-
-variable.doc = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx"),
+  if ( !exists('indiv') )  indiv = readRDS( paste0( dhs_dataset, "indiv.rds") )
+  
+  variable.doc = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx"),
                            sheet = "derived-summary")
 
-# summary vars
-summarise.nse = filter( variable.doc, !is.na(Code) , 
-                             tolower(Include) %in% 'y',
-                             Applies_to == "summarise"
+## summary vars ####
+   summarise.nse= filter( variable.doc, !is.na(Code) , 
+                        tolower(Include) %in% 'y',
+                        Applies_to == "cluster.summary"
 ) %>%
   dplyr::select(Variable, Code)  %>% as.list()
 
 
-# mutate vars
-mutate.nse = variable.doc %>%
-  filter(  !is.na(Code) , 
-           tolower(Include) %in% 'y',
-           Applies_to == "mutate"
-           ) %>% 
-  dplyr::select(Variable, Code)  %>% as.list()
+## mutate vars ####
+  mutate.nse = variable.doc %>%
+    filter(  !is.na(Code) , 
+             tolower(Include) %in% 'y',
+             Applies_to == "cluster.mutate"
+    ) %>% 
+    dplyr::select(Variable, Code)  %>% as.list()
 
-if ( !exists("indiv") ) indiv = readRDS( paste0( dhs_dataset, "indiv.rds") )
+## Cluster df from indiv, with geocodes but not associated with adm area ####
+  cluster = indiv %>%
+    
+    # group by household
+    group_by( country, iso3, survey, year,  hv024, hv023, hv021, hv001, hv002,
+              latitude, longitude ) %>%
+    
+    dplyr::mutate(
+      persons.h =  n()
+    )  %>%
+    
+    # group by household
+    group_by( country, iso3, survey, year, hv024, hv023, hv021, hv001) %>%
+    
+    summarise_( .dots = setNames(
+      as.list( summarise.nse$Code ) ,
+      summarise.nse$Variable
+    )
+    )  %>%
+    
+    mutate_( .dots = setNames(
+      as.list( mutate.nse$Code ) ,
+      mutate.nse$Variable
+    )
+    )  %>%
+    
+    ungroup
 
-
-### TODO:  Do we need this cluster spdf????
-cluster = indiv %>%
+  saveRDS( cluster, file = paste0( dhs_dataset, "cluster.RDS"))
   
-  # group by household
-  group_by( country, iso3, survey, year,  hv024, hv023, hv021, hv001, hv002) %>%
   
-  dplyr::mutate(
-    persons.h =  n()
-  )  %>%
-  
-  # group by household
-  group_by( country, iso3, survey, year, hv024, hv023, hv021, hv001) %>%
-  
-  summarise_( .dots = setNames(
-    as.list( summarise.nse$Code ) ,
-    summarise.nse$Variable
-  )
-  )  %>%
-  
-  mutate_( .dots = setNames(
-    as.list( mutate.nse$Code ) ,
-    mutate.nse$Variable
-  )
-  )  %>%
-  
-  ungroup
+### Create cluster.spdf to use with over function ####
+if ( !exists('indiv') )  indiv = readRDS( paste0( dhs_dataset, "indiv.rds") )
 
 cluster.coords =  indiv %>%
   filter(!is.na(longitude)) %>%
   dplyr::count(iso3, survey, year, hv001, longitude, latitude) %>%
   ungroup
+
+saveRDS( cluster.coords, file = paste0( dhs_dataset,"cluster.coords.rds"))
 
 # split into 2 dataset, one with just lng/lat, for creating SpatialPoints object
 coords = cluster.coords %>%  dplyr::select(longitude, latitude)
@@ -839,10 +845,11 @@ data = cluster.coords %>% dplyr::select(-longitude, -latitude)
 # use same proj string as gadmin data (e.g. see last line of str(x0))
 cluster.spdf = SpatialPointsDataFrame( coords, data, proj4string=CRS(proj_string) )
 
-## adm0 ####
-over_adm0 = over( cluster.spdf, adm0.africa)   %>% dplyr::select(-iso3)
 
-admin0 = bind_cols( cluster.coords, over_adm0 ) %>% dplyr::select(-latitude, -longitude)
+## adm0 ####
+over_adm0 = over( cluster , adm0.africa)   %>% dplyr::select(-iso3)
+
+# admin0 = bind_cols( cluster , over_adm0 ) %>% dplyr::select(-latitude, -longitude)
 
 adm0.household =
   indiv %>%
@@ -992,8 +999,12 @@ adm1 = adm1.household %>%
 ## adm2  #####
 
 over_adm2 = over( cluster.spdf, adm2.africa)   %>% dplyr::select(-iso3)
+save( over_adm2, file = paste0( dhs_dataset, "over_adm2.RDS") )
+if (!exists( 'over_adm2' )) over_adm2 = readRDS( paste0( dhs_dataset, "over_adm2.RDS")  )
 
 admin2 = bind_cols( cluster.coords, over_adm2 ) %>% dplyr::select(-latitude, -longitude)
+save( admin2, file = paste0( dhs_dataset, "admin2.RDS") )
+if (!exists( 'admin2' )) admin2 = readRDS( paste0( dhs_dataset, "admin2.RDS")  )
 
 adm2.indiv =
      indiv %>%
@@ -1010,6 +1021,7 @@ adm2.indiv =
 
 saveRDS( adm2.indiv, file = paste0( dhs_dataset, "adm2.indiv.RDS"))
 
+# summarise with derive-summary variables
 adm2 = adm2.indiv %>%
 
      # group by admin
@@ -1038,8 +1050,14 @@ adm2 = adm2.indiv %>%
 save( survey_list, variable.doc, cluster, adm0, adm1, adm2 , adm2.indiv,
       file = paste0( dhs_dataset, "malaria_atlas.rda") 
       )
+# update June 2018, using nested results with SE instead of directly calculated results
+# in adm0, adm1, adm2, and adm2.indiv.  These can be removed from list 
+save( survey_list, variable.doc, cluster,
+      file = paste0( dhs_dataset, "malaria_atlas_2.rda") 
+)
 #### SURVEY ESTIMATES ####
-# Nested #####
+
+# Nested dataset #####
 
 if( !exists( 'adm2.indiv' )) adm2.indiv = readRDS( paste0( dhs_dataset, "adm2.indiv.RDS"))
 
@@ -1101,7 +1119,7 @@ svy_mean = function(x, var, by ){
   .var = as.formula( paste( "~", var ))
   .by = as.formula( paste( "~", paste( by, collapse = "+") ) )
   
-  svyby( .var, .by, sd , svymean, na.rm = TRUE )
+  svyby( .var, .by, sd , svymean, na.rm = TRUE, vartype="ci",method="beta"  )
 } 
 
 ##  By u6  #####
@@ -1330,7 +1348,7 @@ anti_join( survey_list, t, by = c( "iso3", "year")) %>%
   select( country, year, survey )
 
 
-##  By NAME_1  #####
+##  By NAME_0  #####
 
 
 # Variables for survey estimates
@@ -1350,7 +1368,7 @@ col.classes = map_chr( vars, ~ class( survey.nest$data[[1]][,.x][[1]] ) )
 
 vars = vars[ !col.classes %in% c( 'factor', 'logical') ]
 
-by = c( 'NAME_1' ) # 'NAME_0' # 'hv024' c('hv024', 'hv025')  # 
+by = c( 'NAME_0' ) # 'NAME_0' # 'hv024' c('hv024', 'hv025')  # 
 
 n_surveys = nrow(survey.nest)
 p <- progress_estimated(n_surveys)
@@ -1416,14 +1434,411 @@ for (i in seq_along( 1:n_surveys )  ){
   x[[i]]  = data.table::rbindlist( xx , fill = TRUE )
 }
 
-estimates.by.NAME_1 = data.table::rbindlist( x , fill = TRUE) %>% 
-  left_join( adm1.africa.centroids , by = c('iso3', 'NAME_1'))
+estimates.by.NAME_0 = data.table::rbindlist( x , fill = TRUE) %>% 
+  left_join( adm0.africa.centroids , by = c('iso3', 'NAME_0'))
 
-saveRDS( estimates.by.NAME_1, file = paste0( dhs_dataset, "estimates.by.NAME_1.rds"))
+saveRDS( estimates.by.NAME_0, file = paste0( dhs_dataset, "estimates.by.NAME_0.rds"))
 
-if (!exists('estimates.by.NAME_1')) estimates.by.NAME_1 = readRDS( file = paste0( dhs_dataset, "estimates.by.NAME_1.rds"))
-
-
+if (!exists('estimates.by.NAME_0')) estimates.by.NAME_0 = readRDS( file = paste0( dhs_dataset, "estimates.by.NAME_0.rds"))
 
 
 
+
+
+
+
+
+##  By NAME_1  #####
+
+  
+  # Variables for survey estimates
+  variable.derived = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
+                                 sheet = "derived-indiv" 
+  ) %>% 
+    filter( tolower(Include) %in% 'y' )
+  
+  vars = variable.derived$Variable
+  
+  # Exclude as column variable, variable already in by variables
+  # exclusion = !(grepl( paste(by, collapse = "|") , vars) | grepl( paste( c('year', 'month', 'CMC'), collapse = "|") , vars) )
+  # cols = variable.derived$Variable[ exclusion ] 
+  
+  # exclude factor variables:  numeric and logical only
+  col.classes = map_chr( vars, ~ class( survey.nest$data[[1]][,.x][[1]] ) )
+  
+  vars = vars[ !col.classes %in% c( 'factor', 'logical') ]
+  
+  by = c( 'NAME_1' ) # 'NAME_0' # 'hv024' c('hv024', 'hv025')  # 
+  
+  n_surveys = nrow(survey.nest)
+  p <- progress_estimated(n_surveys)
+  x <- list()
+  options(survey.lonely.psu = "certainty")
+  
+  for (i in seq_along( 1:n_surveys )  ){
+    
+    p$pause(0.1)$tick()$print()
+    
+    cat("\n" ,  
+        survey.nest[i, ]$country, 
+        survey.nest[i, ]$year, 
+        survey.nest[i, ]$survey, 
+        "\n")
+    
+    survey_estimate_list = lapply( vars, function(col){ 
+      survey.nest[i, ] %>% 
+        mutate( est = map(data, var = col , by = by , svy_mean ) ) %>%
+        select(-data) 
+    } )  
+    
+    if ( length(by) > 1 ){
+      
+      survey_estimate_list_2 = lapply( vars, function(col){ 
+        survey.nest[i, ] %>% 
+          mutate( est = map(data, var = col , by = by[2] , svy_mean ) ) %>%
+          select(-data) 
+      } ) 
+      
+      survey_var_list = c( survey_estimate_list, survey_estimate_list_2)
+      
+    } else {
+      
+      survey_var_list = c( survey_estimate_list )
+    }
+    
+    
+    ## extract estimates from survey_var_list and place into list xx
+    xx = list()
+    
+    n_survey_var_list = length( survey_var_list )
+    
+    for (ii in seq_along( 1:n_survey_var_list )  ){
+      
+      if ( is.na( survey_var_list[[ii]]$est ) ){ next }
+      
+      # index adjustment for cols, to account for going through cols >1x
+      indexAdjustment = floor( (ii-1)/length(vars))*length(vars)
+      
+      # .by = quo(by)
+      df =  survey_var_list[[ii]] %>% unnest(est) %>% 
+        mutate( var = vars[ii] ) %>%
+        rename_( est = vars[ii - indexAdjustment] )
+      
+      # gather_( 'est', 'val', c( cols[ii], 'se') ) 
+      
+      # df[ df$est == cols[ii], ]$est = "point"
+      
+      xx[[ii]] = df %>% filter( !is.na(by) )
+    }
+    
+    x[[i]]  = data.table::rbindlist( xx , fill = TRUE )
+  }
+  
+  estimates.by.NAME_1 = data.table::rbindlist( x , fill = TRUE) %>% 
+    left_join( adm1.africa.centroids , by = c('iso3', 'NAME_1'))
+  
+  saveRDS( estimates.by.NAME_1, file = paste0( dhs_dataset, "estimates.by.NAME_1.rds"))
+  
+  if (!exists('estimates.by.NAME_1')) estimates.by.NAME_1 = readRDS( file = paste0( dhs_dataset, "estimates.by.NAME_1.rds"))
+  
+
+
+
+
+
+
+
+##  By NAME_2  #####
+  
+  
+  # Variables for survey estimates
+  variable.derived = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
+                                 sheet = "derived-indiv" 
+  ) %>% 
+    filter( tolower(Include) %in% 'y' )
+  
+  vars = variable.derived$Variable
+  
+  # Exclude as column variable, variable already in by variables
+  # exclusion = !(grepl( paste(by, collapse = "|") , vars) | grepl( paste( c('year', 'month', 'CMC'), collapse = "|") , vars) )
+  # cols = variable.derived$Variable[ exclusion ] 
+  
+  # exclude factor variables:  numeric and logical only
+  col.classes = map_chr( vars, ~ class( survey.nest$data[[1]][,.x][[1]] ) )
+  
+  vars = vars[ !col.classes %in% c( 'factor', 'logical') ]
+  
+  by = c('NAME_1', 'NAME_2' ) # 'NAME_0' # 'hv024' c('hv024', 'hv025')  # 
+  
+  n_surveys = nrow(survey.nest)
+  p <- progress_estimated(n_surveys)
+  x <- list()
+  options(survey.lonely.psu = "certainty")
+  
+  for (i in seq_along( 1:n_surveys )  ){
+    
+    p$pause(0.1)$tick()$print()
+    
+    cat("\n" ,  
+        survey.nest[i, ]$country, 
+        survey.nest[i, ]$year, 
+        survey.nest[i, ]$survey, 
+        "\n")
+    
+    survey_estimate_list = lapply( vars, function(col){ 
+      survey.nest[i, ] %>% 
+        mutate( est = map(data, var = col , by = by , svy_mean ) ) %>%
+        select(-data) 
+    } )  
+    
+    if ( length(by) > 1 ){
+      
+      survey_estimate_list_2 = lapply( vars, function(col){ 
+        survey.nest[i, ] %>% 
+          mutate( est = map(data, var = col , by = by[2] , svy_mean ) ) %>%
+          select(-data) 
+      } ) 
+      
+      survey_var_list = c( survey_estimate_list, survey_estimate_list_2)
+      
+    } else {
+      
+      survey_var_list = c( survey_estimate_list )
+    }
+    
+    
+    ## extract estimates from survey_var_list and place into list xx
+    xx = list()
+    
+    n_survey_var_list = length( survey_var_list )
+    
+    for (ii in seq_along( 1:n_survey_var_list )  ){
+      
+      if ( is.na( survey_var_list[[ii]]$est ) ){ next }
+      
+      # index adjustment for cols, to account for going through cols >1x
+      indexAdjustment = floor( (ii-1)/length(vars))*length(vars)
+      
+      # .by = quo(by)
+      df =  survey_var_list[[ii]] %>% unnest(est) %>% 
+        mutate( var = vars[ii] ) %>%
+        rename_( est = vars[ii - indexAdjustment] )
+      
+      # gather_( 'est', 'val', c( cols[ii], 'se') ) 
+      
+      # df[ df$est == cols[ii], ]$est = "point"
+      
+      xx[[ii]] = df # %>% filter( !is.na(by) )
+    }
+    
+    x[[i]]  = data.table::rbindlist( xx , fill = TRUE )
+  }
+  
+  estimates.by.NAME_2 = data.table::rbindlist( x , fill = TRUE) %>% 
+    left_join( adm2.africa.centroids , by = c('iso3', 'NAME_1', 'NAME_2'))
+  
+  saveRDS( estimates.by.NAME_2, file = paste0( dhs_dataset, "estimates.by.NAME_2.rds"))
+  
+  if (!exists('estimates.by.NAME_2')) estimates.by.NAME_2 = readRDS( file = paste0( dhs_dataset, "estimates.by.NAME_2.rds"))
+  
+  
+  
+  
+  
+  
+  
+  
+##  By Region (hv024)  #####
+
+  # Variables for survey estimates
+  variable.derived = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
+                                 sheet = "derived-indiv" 
+  ) %>% 
+    filter( tolower(Include) %in% 'y' )
+  
+  vars = variable.derived$Variable
+  
+  # Exclude as column variable, variable already in by variables
+  # exclusion = !(grepl( paste(by, collapse = "|") , vars) | grepl( paste( c('year', 'month', 'CMC'), collapse = "|") , vars) )
+  # cols = variable.derived$Variable[ exclusion ] 
+  
+  # exclude factor variables:  numeric and logical only
+  col.classes = map_chr( vars, ~ class( survey.nest$data[[1]][,.x][[1]] ) )
+  
+  vars = vars[ !col.classes %in% c( 'factor', 'logical') ]
+  
+  by = c( 'NAME_1' ) # 'NAME_0' # 'hv024' c('hv024', 'hv025')  # 
+  
+  n_surveys = nrow(survey.nest)
+  p <- progress_estimated(n_surveys)
+  x <- list()
+  options(survey.lonely.psu = "certainty")
+  
+  for (i in seq_along( 1:n_surveys )  ){
+    
+    p$pause(0.1)$tick()$print()
+    
+    cat("\n" ,  
+        survey.nest[i, ]$country, 
+        survey.nest[i, ]$year, 
+        survey.nest[i, ]$survey, 
+        "\n")
+    
+    survey_estimate_list = lapply( vars, function(col){ 
+      survey.nest[i, ] %>% 
+        mutate( est = map(data, var = col , by = by , svy_mean ) ) %>%
+        select(-data) 
+    } )  
+    
+    if ( length(by) > 1 ){
+      
+      survey_estimate_list_2 = lapply( vars, function(col){ 
+        survey.nest[i, ] %>% 
+          mutate( est = map(data, var = col , by = by[2] , svy_mean ) ) %>%
+          select(-data) 
+      } ) 
+      
+      survey_var_list = c( survey_estimate_list, survey_estimate_list_2)
+      
+    } else {
+      
+      survey_var_list = c( survey_estimate_list )
+    }
+    
+    
+    ## extract estimates from survey_var_list and place into list xx
+    xx = list()
+    
+    n_survey_var_list = length( survey_var_list )
+    
+    for (ii in seq_along( 1:n_survey_var_list )  ){
+      
+      if ( is.na( survey_var_list[[ii]]$est ) ){ next }
+      
+      # index adjustment for cols, to account for going through cols >1x
+      indexAdjustment = floor( (ii-1)/length(vars))*length(vars)
+      
+      # .by = quo(by)
+      df =  survey_var_list[[ii]] %>% unnest(est) %>% 
+        mutate( var = vars[ii] ) %>%
+        rename_( est = vars[ii - indexAdjustment] )
+      
+      # gather_( 'est', 'val', c( cols[ii], 'se') ) 
+      
+      # df[ df$est == cols[ii], ]$est = "point"
+      
+      xx[[ii]] = df %>% filter( !is.na(by) )
+    }
+    
+    x[[i]]  = data.table::rbindlist( xx , fill = TRUE )
+  }
+  
+  estimates.by.NAME_1 = data.table::rbindlist( x , fill = TRUE) %>% 
+    left_join( adm1.africa.centroids , by = c('iso3', 'NAME_1'))
+  
+  saveRDS( estimates.by.NAME_1, file = paste0( dhs_dataset, "estimates.by.NAME_1.rds"))
+  
+  if (!exists('estimates.by.NAME_1')) estimates.by.NAME_1 = readRDS( file = paste0( dhs_dataset, "estimates.by.NAME_1.rds"))
+  
+  
+  
+
+
+
+
+
+## By Cluster (hv001) ####
+
+  # Variables for survey estimates
+  variable.derived = read_excel( paste0( dhs_code, "dhs_variable_definitions.xlsx") ,
+                                 sheet = "derived-indiv" 
+  ) %>% 
+    filter( tolower(Include) %in% 'y' )
+  
+  vars = variable.derived$Variable
+  
+  # Exclude as column variable, variable already in by variables
+  # exclusion = !(grepl( paste(by, collapse = "|") , vars) | grepl( paste( c('year', 'month', 'CMC'), collapse = "|") , vars) )
+  # cols = variable.derived$Variable[ exclusion ] 
+  
+  # exclude factor variables:  numeric and logical only
+  # get classes of each variable as seen in dataset.
+  col.classes = map_chr( vars, ~ class( survey.nest$data[[1]][,.x][[1]] ) )
+  
+  vars = vars[ !col.classes %in% c( 'factor', 'logical') ]
+  
+  by = c( "hv001" ) # 'NAME_0' # 'hv024' c('hv024', 'hv025')  # 
+  
+  n_surveys = nrow(survey.nest)
+  p <- progress_estimated(n_surveys)
+  x <- list()
+  options(survey.lonely.psu = "certainty")
+  
+  for (i in seq_along( 1:n_surveys )  ){
+    
+    p$pause(0.1)$tick()$print()
+    
+    cat("\n" ,  
+        survey.nest[i, ]$country, 
+        survey.nest[i, ]$year, 
+        survey.nest[i, ]$survey, 
+        "\n")
+    
+    survey_estimate_list = lapply( vars, function(col){ 
+      survey.nest[i, ] %>% 
+        mutate( est = map(data, var = col , by = by , svy_mean ) ) %>%
+        select(-data) 
+    } )  
+    
+    if ( length(by) > 1 ){
+      
+      survey_estimate_list_2 = lapply( vars, function(col){ 
+        survey.nest[i, ] %>% 
+          mutate( est = map(data, var = col , by = by[2] , svy_mean ) ) %>%
+          select(-data) 
+      } ) 
+      
+      survey_var_list = c( survey_estimate_list, survey_estimate_list_2)
+      
+    } else {
+      
+      survey_var_list = c( survey_estimate_list )
+    }
+    
+    
+    ## extract estimates from survey_var_list and place into list xx
+    xx = list()
+    
+    n_survey_var_list = length( survey_var_list )
+    
+    for (ii in seq_along( 1:n_survey_var_list )  ){
+      
+      if ( is.na( survey_var_list[[ii]]$est ) ){ next }
+      
+      # index adjustment for cols, to account for going through cols >1x
+      indexAdjustment = floor( (ii-1)/length(vars))*length(vars)
+      
+      # .by = quo(by)
+      df =  survey_var_list[[ii]] %>% unnest(est) %>% 
+        mutate( var = vars[ii] ) %>%
+        rename_( est = vars[ii - indexAdjustment] )
+      
+      # gather_( 'est', 'val', c( cols[ii], 'se') ) 
+      
+      # df[ df$est == cols[ii], ]$est = "point"
+      
+      xx[[ii]] = df %>% filter( !is.na(by) )
+    }
+    
+    x[[i]]  = data.table::rbindlist( xx , fill = TRUE )
+  }
+  
+  cluster.estimates = data.table::rbindlist( x , fill = TRUE) 
+  
+  # add in Lat-Long
+  if ( !exists('cluster.coords') )  indiv = readRDS( paste0( dhs_dataset, "cluster.coords.rds") )
+  cluster.estimates = cluster.estimates %>%
+    left_join( cluster.coords, by = c("iso3", "survey", "year", "hv001"))
+  
+  saveRDS( cluster.estimates, file =  paste0( dhs_dataset, "cluster.estimates.RDS"))
+  

@@ -3,8 +3,9 @@
 library(tidyverse)
 library( countrycode )
 library(stringr)
-
 library(rvest)
+
+# Download and compile available datasets ####
 dhs_list <- read_html("http://dhsprogram.com/data/available-datasets.cfm")
 str(dhs_list)
 
@@ -62,7 +63,7 @@ dhs = dhs %>%
     region = codelist[ match(dhs$iso3, codelist$iso3c), 'region']
   )
 
-# View(dhs)
+# View(dhs) #####
 
 ### Datasets already downloaded ####
 dhs_downloads = "../DHS/_Surveys/_zip_download/"
